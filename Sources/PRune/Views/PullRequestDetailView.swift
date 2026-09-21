@@ -402,7 +402,9 @@ private struct PullRequestStatusControl: View {
     @State private var isStatusMenuPresented = false
 
     private var canEdit: Bool {
-        pullRequest.scopes.contains(.authored) && !store.isShowingPreviewData
+        pullRequest.scopes.contains(.authored)
+            && (pullRequest.status == .open || pullRequest.status == .draft)
+            && !store.isShowingPreviewData
     }
 
     var body: some View {

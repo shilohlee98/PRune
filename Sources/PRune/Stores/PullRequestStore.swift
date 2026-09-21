@@ -14,9 +14,12 @@ final class PullRequestStore {
     var selectedID: PullRequest.ID?
     var scope: PullRequestScope = .authored
     var searchText = ""
+    var statusFilter: PullRequestStatusFilter = .all
     var checkFilter: CheckState = .all
     var expandedRepositories: Set<String> = []
     var isLoading = false
+    var isLoadingMore = false
+    var canLoadMore = false
     var hasCompletedInitialLoad = false
     var isPerformingMutation = false
     var isLoadingGitHubAccounts = false
@@ -40,19 +43,24 @@ final class PullRequestStore {
     @ObservationIgnored
     private var prefetchTask: Task<Void, Never>?
 
+    private let pullRequestPageSize = 20
+    private let detailPrefetchLimit = 4
+    private var pullRequestLimit = 20
+
     private let service = GitHubService()
 
     var filteredPullRequests: [PullRequest] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return pullRequests.filter { pullRequest in
             let matchesScope = scope == .all || pullRequest.scopes.contains(scope)
+            let matchesStatus = statusFilter.includes(pullRequest.status)
             let matchesCheck = checkFilter == .all || pullRequest.checkState == checkFilter
             let matchesSearch = query.isEmpty
                 || pullRequest.title.lowercased().contains(query)
                 || pullRequest.repositoryFullName.lowercased().contains(query)
                 || pullRequest.branch.lowercased().contains(query)
                 || String(pullRequest.number).contains(query)
-            return matchesScope && matchesCheck && matchesSearch
+            return matchesScope && matchesStatus && matchesCheck && matchesSearch
         }
     }
 
@@ -75,7 +83,9 @@ final class PullRequestStore {
     }
 
     func refresh() async {
-        guard !isLoading else { return }
+        guard !isLoading, !isLoadingMore else { return }
+        let initialLimit = pullRequestPageSize
+        canLoadMore = false
         prefetchTask?.cancel()
         detailGeneration += 1
         let generation = detailGeneration
@@ -91,7 +101,12 @@ final class PullRequestStore {
         do {
             async let viewerLogin = service.fetchViewerLogin()
             async let githubAccounts = service.fetchAuthenticatedAccounts()
-            let livePullRequests = try await service.fetchOpenPullRequests()
+            let page = try await service.fetchPullRequests(
+                scope: scope,
+                status: statusFilter,
+                limit: initialLimit
+            )
+            let livePullRequests = page.items
             self.viewerLogin = (try? await viewerLogin) ?? ""
             if let accounts = try? await githubAccounts {
                 self.githubAccounts = accounts
@@ -100,6 +115,8 @@ final class PullRequestStore {
             diffs.removeAll()
             loadingDiffKeys.removeAll()
             pullRequests = livePullRequests
+            pullRequestLimit = initialLimit
+            canLoadMore = page.hasMore
             activityComments.removeAll()
             expandedRepositories = Set(livePullRequests.map(\.repositoryName))
             isShowingPreviewData = false
@@ -116,14 +133,46 @@ final class PullRequestStore {
             let prefetchIDs = livePullRequests
                 .map(\.id)
                 .filter { $0 != selectedID }
+                .prefix(detailPrefetchLimit)
             prefetchTask = Task { [weak self] in
-                await self?.prefetchDetails(ids: prefetchIDs, generation: generation)
+                await self?.prefetchDetails(ids: Array(prefetchIDs), generation: generation)
             }
         } catch {
             if pullRequests.isEmpty {
                 isShowingPreviewData = true
             }
             errorMessage = "Could not load pull requests — \(error.localizedDescription)"
+        }
+    }
+
+    func loadMore() async {
+        guard !isLoading, !isLoadingMore, canLoadMore else { return }
+        isLoadingMore = true
+        defer { isLoadingMore = false }
+
+        let nextLimit = pullRequestLimit + pullRequestPageSize
+        do {
+            let page = try await service.fetchPullRequests(
+                scope: scope,
+                status: statusFilter,
+                limit: nextLimit
+            )
+            let existing = Dictionary(uniqueKeysWithValues: pullRequests.map { ($0.id, $0) })
+            pullRequests = page.items.map { item in
+                guard let current = existing[item.id], current.detailsLoaded else { return item }
+                var preserved = current
+                preserved.scopes = item.scopes
+                preserved.status = item.status
+                preserved.isDraft = item.isDraft
+                return preserved
+            }
+            pullRequestLimit = nextLimit
+            canLoadMore = page.hasMore
+            expandedRepositories.formUnion(page.items.map(\.repositoryName))
+            isShowingPreviewData = false
+            errorMessage = nil
+        } catch {
+            errorMessage = "Could not load more pull requests — \(error.localizedDescription)"
         }
     }
 
@@ -523,6 +572,7 @@ final class PullRequestStore {
             try await service.updateDraftState(of: pullRequest, isDraft: isDraft)
             if let index = pullRequests.firstIndex(where: { $0.id == id }) {
                 pullRequests[index].isDraft = isDraft
+                pullRequests[index].status = isDraft ? .draft : .open
             }
         }
     }

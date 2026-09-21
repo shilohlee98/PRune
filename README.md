@@ -10,7 +10,7 @@
 
 ## Features
 
-- Browses All, Reviewing, and Authored pull requests grouped by repository, with search and check-status filters
+- Browses All, Reviewing, and Authored pull requests grouped by repository, with incremental loading, search, pull-request status, and check-status filters
 - Switches between GitHub accounts authenticated through the local `gh` CLI
 - Shows pull request summaries, reviewers, checks, activity, commits, changed files, and merge blockers
 - Opens all changes or a single commit in unified or split, syntax-highlighted diffs

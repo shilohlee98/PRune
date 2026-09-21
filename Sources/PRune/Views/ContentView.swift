@@ -403,7 +403,9 @@ struct ContentView: View {
         HStack(spacing: 3) {
             ForEach(PullRequestScope.allCases) { scope in
                 Button {
+                    guard store.scope != scope else { return }
                     store.scope = scope
+                    Task { await store.refresh() }
                 } label: {
                     Text(scope.rawValue)
                         .font(.system(size: 11.5))
@@ -416,6 +418,7 @@ struct ContentView: View {
                         )
                 }
                 .buttonStyle(.plain)
+                .disabled(store.isLoading || store.isLoadingMore)
             }
         }
     }

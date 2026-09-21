@@ -1,5 +1,10 @@
 import Foundation
 
+struct PullRequestPage: Sendable {
+    let items: [PullRequest]
+    let hasMore: Bool
+}
+
 struct GitHubService: Sendable {
     func fetchAuthenticatedAccounts() async throws -> [GitHubAccount] {
         let data = try await run(["auth", "status", "--json", "hosts"])
@@ -44,16 +49,29 @@ struct GitHubService: Sendable {
         return login
     }
 
-    func fetchOpenPullRequests() async throws -> [PullRequest] {
-        async let authored = search(flag: "--author")
-        async let reviewing = search(flag: "--review-requested")
-        let (authoredItems, reviewingItems) = try await (authored, reviewing)
+    func fetchPullRequests(
+        scope: PullRequestScope,
+        status: PullRequestStatusFilter,
+        limit: Int
+    ) async throws -> PullRequestPage {
+        if scope != .all {
+            let flag = scope == .authored ? "--author" : "--review-requested"
+            let page = try await search(flag: flag, status: status, limit: limit)
+            return PullRequestPage(
+                items: try await fetchStatistics(for: page.items),
+                hasMore: page.hasMore
+            )
+        }
+
+        async let authored = search(flag: "--author", status: status, limit: limit)
+        async let reviewing = search(flag: "--review-requested", status: status, limit: limit)
+        let (authoredPage, reviewingPage) = try await (authored, reviewing)
 
         var merged: [String: PullRequest] = [:]
-        for item in authoredItems {
+        for item in authoredPage.items {
             merged[item.id] = item
         }
-        for var item in reviewingItems {
+        for var item in reviewingPage.items {
             if var existing = merged[item.id] {
                 existing.scopes.insert(.reviewing)
                 merged[item.id] = existing
@@ -63,8 +81,15 @@ struct GitHubService: Sendable {
             }
         }
 
-        let pullRequests = merged.values.sorted { $0.updatedAt > $1.updatedAt }
-        return try await fetchStatistics(for: pullRequests)
+        let pullRequests = Array(
+            merged.values
+                .sorted { $0.updatedAt > $1.updatedAt }
+                .prefix(limit)
+        )
+        return PullRequestPage(
+            items: try await fetchStatistics(for: pullRequests),
+            hasMore: merged.count > limit || authoredPage.hasMore || reviewingPage.hasMore
+        )
     }
 
     func fetchDetails(for pullRequest: PullRequest) async throws -> PullRequest {
@@ -498,16 +523,31 @@ struct GitHubService: Sendable {
         ])
     }
 
-    private func search(flag: String) async throws -> [PullRequest] {
-        let data = try await run([
-            "search", "prs", flag, "@me", "--state", "open", "--limit", "100",
-            "--json", "number,title,repository,updatedAt,url,isDraft,author,commentsCount",
-        ])
+    private func search(
+        flag: String,
+        status: PullRequestStatusFilter,
+        limit: Int
+    ) async throws -> PullRequestSearchPage {
+        let requestLimit = limit + 1
+        let data = try await run(
+            searchArguments(flag: flag, status: status, limit: requestLimit)
+        )
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let items = try decoder.decode([GHSearchItem].self, from: data)
+        let mergedURLs: Set<String>
+        if status == .all {
+            let mergedData = try await run(
+                searchArguments(flag: flag, status: .merged, limit: requestLimit)
+            )
+            mergedURLs = Set(
+                try decoder.decode([GHSearchItem].self, from: mergedData).map(\.url)
+            )
+        } else {
+            mergedURLs = []
+        }
         let scope: PullRequestScope = flag == "--author" ? .authored : .reviewing
-        return items.map { item in
+        let pullRequests = items.prefix(limit).map { item in
             var pullRequest = PullRequest(
                 id: item.url,
                 number: item.number,
@@ -519,9 +559,67 @@ struct GitHubService: Sendable {
                 isDraft: item.isDraft,
                 scopes: [scope]
             )
+            pullRequest.status = switch status {
+            case .all:
+                if mergedURLs.contains(item.url) {
+                    .merged
+                } else if item.isDraft {
+                    .draft
+                } else if item.state.uppercased() == "CLOSED" {
+                    .closed
+                } else {
+                    .open
+                }
+            case .open:
+                .open
+            case .draft:
+                .draft
+            case .closed:
+                .closed
+            case .merged:
+                .merged
+            }
             pullRequest.comments = item.commentsCount
             return pullRequest
         }
+        return PullRequestSearchPage(
+            items: Array(pullRequests),
+            hasMore: items.count > limit
+        )
+    }
+
+    private func searchArguments(
+        flag: String,
+        status: PullRequestStatusFilter,
+        limit: Int
+    ) -> [String] {
+        var arguments = ["search", "prs", flag, "@me"]
+        var query: String?
+
+        switch status {
+        case .all:
+            break
+        case .open:
+            arguments += ["--state", "open"]
+            query = "-is:draft"
+        case .draft:
+            arguments += ["--state", "open", "--draft"]
+        case .closed:
+            arguments += ["--state", "closed"]
+            query = "-is:merged"
+        case .merged:
+            arguments.append("--merged")
+        }
+
+        arguments += [
+            "--limit", String(limit),
+            "--sort", "updated",
+            "--json", "number,title,repository,updatedAt,url,isDraft,state,author,commentsCount",
+        ]
+        if let query {
+            arguments += ["--", query]
+        }
+        return arguments
     }
 
     private func fetchStatistics(for pullRequests: [PullRequest]) async throws -> [PullRequest] {
@@ -775,8 +873,14 @@ private struct GHSearchItem: Decodable, Sendable {
     let updatedAt: Date
     let url: String
     let isDraft: Bool
+    let state: String
     let author: GHActor?
     let commentsCount: Int
+}
+
+private struct PullRequestSearchPage: Sendable {
+    let items: [PullRequest]
+    let hasMore: Bool
 }
 
 private struct GHAuthStatusEnvelope: Decodable, Sendable {

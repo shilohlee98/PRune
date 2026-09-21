@@ -2,7 +2,7 @@ import SwiftUI
 
 struct PullRequestListView: View {
     @Environment(PullRequestStore.self) private var store
-    @State private var isCheckFilterPresented = false
+    @State private var isFilterPresented = false
 
     var body: some View {
         @Bindable var store = store
@@ -21,6 +21,11 @@ struct PullRequestListView: View {
                     LazyVStack(spacing: 9) {
                         ForEach(store.groupedPullRequests, id: \.repository) { group in
                             RepositoryGroupView(repository: group.repository, items: group.items)
+                        }
+
+                        if store.canLoadMore || store.isLoadingMore {
+                            loadMoreButton
+                                .padding(.top, 12)
                         }
 
                         if store.filteredPullRequests.isEmpty && !store.isLoading {
@@ -67,25 +72,55 @@ struct PullRequestListView: View {
             .overlay(Capsule().stroke(Color.white.opacity(0.16), lineWidth: 0.8))
 
             AppDropdown(
-                isPresented: $isCheckFilterPresented,
-                width: 164
+                isPresented: $isFilterPresented,
+                width: 184
             ) {
-                ZStack(alignment: .topTrailing) {
-                    Image(systemName: "line.3.horizontal.decrease")
-                        .frame(width: 30, height: 30)
-                        .background(Color.elevatedBackground)
-                        .clipShape(Circle())
-                    if store.checkFilter != .all {
-                        Circle()
-                            .fill(.blue)
-                            .frame(width: 6, height: 6)
-                    }
-                }
+                Image(systemName: "line.3.horizontal.decrease")
+                    .frame(width: 30, height: 30)
+                    .background(Color.elevatedBackground)
+                    .clipShape(Circle())
             } menuContent: {
                 VStack(spacing: 2) {
+                    Text("PULL REQUEST STATUS")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(Color.mutedText)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 5)
+
+                    ForEach(PullRequestStatusFilter.allCases) { status in
+                        AppDropdownRow(isSelected: store.statusFilter == status) {
+                            let changed = store.statusFilter != status
+                            isFilterPresented = false
+                            store.statusFilter = status
+                            if changed {
+                                Task { await store.refresh() }
+                            }
+                        } content: {
+                            HStack(spacing: 8) {
+                                Image(systemName: statusIcon(status))
+                                    .frame(width: 12)
+                                    .foregroundStyle(Color.secondaryText)
+                                Text(status.rawValue)
+                                    .font(.system(size: 11.5, weight: .medium))
+                            }
+                        }
+                    }
+
+                    Divider()
+                        .overlay(Color.subtleBorder)
+                        .padding(.vertical, 4)
+
+                    Text("CHECKS")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(Color.mutedText)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 9)
+                        .padding(.bottom, 5)
+
                     ForEach(CheckState.allCases) { state in
                         AppDropdownRow(isSelected: store.checkFilter == state) {
-                            isCheckFilterPresented = false
+                            isFilterPresented = false
                             store.checkFilter = state
                         } content: {
                             HStack(spacing: 8) {
@@ -98,6 +133,44 @@ struct PullRequestListView: View {
                 }
             }
             .fixedSize()
+            .disabled(store.isLoading || store.isLoadingMore)
+        }
+    }
+
+    private var loadMoreButton: some View {
+        Button {
+            Task { await store.loadMore() }
+        } label: {
+            Group {
+                if store.isLoadingMore {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Text("Load more")
+                        .font(.system(size: 11.5, weight: .medium))
+                }
+            }
+            .frame(minWidth: 76)
+            .padding(.horizontal, 12)
+            .frame(height: 28)
+            .background(Color.elevatedBackground)
+            .clipShape(Capsule())
+            .overlay {
+                Capsule()
+                    .stroke(Color.white.opacity(0.08), lineWidth: 0.7)
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(store.isLoadingMore)
+    }
+
+    private func statusIcon(_ status: PullRequestStatusFilter) -> String {
+        switch status {
+        case .all: "circle.grid.2x2"
+        case .open: "circle"
+        case .draft: "pencil"
+        case .closed: "xmark.circle"
+        case .merged: "arrow.triangle.merge"
         }
     }
 

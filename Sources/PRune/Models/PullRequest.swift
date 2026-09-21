@@ -18,6 +18,38 @@ enum PullRequestScope: String, CaseIterable, Identifiable, Sendable {
     var id: String { rawValue }
 }
 
+enum PullRequestStatus: String, Sendable {
+    case open = "Open"
+    case draft = "Draft"
+    case closed = "Closed"
+    case merged = "Merged"
+}
+
+enum PullRequestStatusFilter: String, CaseIterable, Identifiable, Sendable {
+    case all = "All"
+    case open = "Open"
+    case draft = "Draft"
+    case closed = "Closed"
+    case merged = "Merged"
+
+    var id: String { rawValue }
+
+    func includes(_ status: PullRequestStatus) -> Bool {
+        switch self {
+        case .all:
+            true
+        case .open:
+            status == .open
+        case .draft:
+            status == .draft
+        case .closed:
+            status == .closed
+        case .merged:
+            status == .merged
+        }
+    }
+}
+
 enum CheckState: String, CaseIterable, Identifiable, Sendable {
     case all = "Any status"
     case success = "Successful"
@@ -310,6 +342,7 @@ struct PullRequest: Identifiable, Hashable, Sendable {
     let webURL: URL
     var isDraft: Bool
     var scopes: Set<PullRequestScope>
+    var status: PullRequestStatus = .open
 
     var branch = ""
     var baseBranch = ""
@@ -349,6 +382,12 @@ struct PullRequest: Identifiable, Hashable, Sendable {
     }
 
     var mergeBlockReason: String? {
+        if status == .merged {
+            return "Pull request has already been merged"
+        }
+        if status == .closed {
+            return "Pull request is closed"
+        }
         guard detailsLoaded, !headRefOID.isEmpty else {
             return "Loading merge status"
         }
@@ -381,7 +420,16 @@ struct PullRequest: Identifiable, Hashable, Sendable {
     }
 
     var statusLabel: String {
-        isDraft ? "Draft" : "Ready for review"
+        switch status {
+        case .open:
+            isDraft ? "Draft" : "Ready for review"
+        case .draft:
+            "Draft"
+        case .closed:
+            "Closed"
+        case .merged:
+            "Merged"
+        }
     }
 }
 
@@ -411,6 +459,7 @@ extension PullRequest {
                 isDraft: state == .failed,
                 scopes: scopes
             )
+            pullRequest.status = pullRequest.isDraft ? .draft : .open
             pullRequest.branch = branch
             pullRequest.baseBranch = "develop"
             pullRequest.body = "## Motivation and Context\nPHXX-\(number)\n\n## Description\nThis pull request keeps the change focused and adds regression coverage for the updated behavior.\n\n## Checklist\n- [x] I have performed a self-review of my code\n- [x] I have described the pull request clearly\n- [ ] I have made the pull request small"
