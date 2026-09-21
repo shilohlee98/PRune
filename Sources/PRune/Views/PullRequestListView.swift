@@ -1,0 +1,226 @@
+import SwiftUI
+
+struct PullRequestListView: View {
+    @Environment(PullRequestStore.self) private var store
+    @State private var isCheckFilterPresented = false
+
+    var body: some View {
+        @Bindable var store = store
+
+        VStack(spacing: 0) {
+            VStack(spacing: 0) {
+                searchRow
+                    .padding(.top, 16)
+                    .padding(.bottom, 12)
+
+                if let errorMessage = store.errorMessage {
+                    errorBanner(errorMessage)
+                }
+
+                ScrollView {
+                    LazyVStack(spacing: 9) {
+                        ForEach(store.groupedPullRequests, id: \.repository) { group in
+                            RepositoryGroupView(repository: group.repository, items: group.items)
+                        }
+
+                        if store.filteredPullRequests.isEmpty && !store.isLoading {
+                            ContentUnavailableView(
+                                "No pull requests",
+                                systemImage: "magnifyingglass",
+                                description: Text("Try another search or check status.")
+                            )
+                            .frame(height: 280)
+                        }
+                    }
+                    .padding(.bottom, 40)
+                }
+                .scrollIndicators(.never)
+            }
+            .frame(maxWidth: 660)
+            .padding(.horizontal, 20)
+        }
+        .background(Color.appBackground)
+    }
+
+    private var searchRow: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(Color.mutedText)
+                TextField("Search pull requests", text: Bindable(store).searchText)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+                if !store.searchText.isEmpty {
+                    Button {
+                        store.searchText = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color.mutedText)
+                }
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 30)
+            .background(Color.elevatedBackground)
+            .clipShape(Capsule())
+            .overlay(Capsule().stroke(Color.white.opacity(0.16), lineWidth: 0.8))
+
+            AppDropdown(
+                isPresented: $isCheckFilterPresented,
+                width: 164
+            ) {
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: "line.3.horizontal.decrease")
+                        .frame(width: 30, height: 30)
+                        .background(Color.elevatedBackground)
+                        .clipShape(Circle())
+                    if store.checkFilter != .all {
+                        Circle()
+                            .fill(.blue)
+                            .frame(width: 6, height: 6)
+                    }
+                }
+            } menuContent: {
+                VStack(spacing: 2) {
+                    ForEach(CheckState.allCases) { state in
+                        AppDropdownRow(isSelected: store.checkFilter == state) {
+                            isCheckFilterPresented = false
+                            store.checkFilter = state
+                        } content: {
+                            HStack(spacing: 8) {
+                                StateDot(state: state)
+                                Text(state.rawValue)
+                                    .font(.system(size: 11.5, weight: .medium))
+                            }
+                        }
+                    }
+                }
+            }
+            .fixedSize()
+        }
+    }
+
+    private func errorBanner(_ message: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "info.circle")
+            Text(message)
+                .lineLimit(2)
+            Spacer()
+            Button("Retry") {
+                Task { await store.refresh() }
+            }
+            .buttonStyle(.appSubtle)
+        }
+        .font(.system(size: 11))
+        .foregroundStyle(Color.secondaryText)
+        .padding(9)
+        .background(Color.orange.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .padding(.bottom, 8)
+    }
+
+}
+
+private struct RepositoryGroupView: View {
+    @Environment(PullRequestStore.self) private var store
+    let repository: String
+    let items: [PullRequest]
+
+    private var isExpanded: Bool {
+        store.expandedRepositories.contains(repository)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Button {
+                withAnimation(.easeOut(duration: 0.14)) {
+                    store.toggleRepository(repository)
+                }
+            } label: {
+                HStack(spacing: 7) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 8, weight: .semibold))
+                        .foregroundStyle(Color.mutedText)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .frame(width: 11)
+                    Text(String(repository.prefix(1)).uppercased())
+                        .font(.system(size: 9, weight: .medium))
+                        .frame(width: 20, height: 20)
+                        .background(Color.elevatedBackground)
+                        .clipShape(RoundedRectangle(cornerRadius: 5))
+                        .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.subtleBorder))
+                    Text(repository)
+                        .font(.system(size: 12, weight: .semibold))
+                        .lineLimit(1)
+                    Spacer()
+                }
+                .padding(.leading, 2)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .frame(height: 29)
+
+            if isExpanded {
+                ForEach(items) { pullRequest in
+                    PullRequestRow(
+                        pullRequest: pullRequest,
+                        isSelected: store.selectedID == pullRequest.id
+                    ) {
+                        store.select(pullRequest)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct PullRequestRow: View {
+    let pullRequest: PullRequest
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 7) {
+                PullRequestGlyph(state: pullRequest.checkState, isSelected: isSelected)
+                    .padding(.leading, 5)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(pullRequest.title)
+                        .font(.system(size: 12.5, weight: .regular))
+                        .foregroundStyle(Color.white.opacity(0.84))
+                        .lineLimit(1)
+                    HStack(spacing: 5) {
+                        Text("#\(pullRequest.number)")
+                        if !pullRequest.branch.isEmpty {
+                            Text("·")
+                            Text(pullRequest.branch)
+                                .lineLimit(1)
+                        }
+                    }
+                    .font(.system(size: 10))
+                    .foregroundStyle(Color.white.opacity(0.36))
+                }
+
+                Spacer(minLength: 8)
+
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text(pullRequest.ageLabel)
+                    HStack(spacing: 5) {
+                        Text("+\(pullRequest.additions)").foregroundStyle(.green.opacity(0.55))
+                        Text("−\(pullRequest.deletions)").foregroundStyle(.red.opacity(0.55))
+                    }
+                }
+                .font(.system(size: 10))
+                .foregroundStyle(Color.white.opacity(0.34))
+            }
+            .padding(.horizontal, 8)
+            .frame(minHeight: 52)
+            .background(isSelected ? Color.selectedBackground : .clear)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
