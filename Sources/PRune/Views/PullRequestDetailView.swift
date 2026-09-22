@@ -398,12 +398,12 @@ private struct PullRequestStatusControl: View {
     @Environment(PullRequestStore.self) private var store
     let pullRequest: PullRequest
 
-    @State private var pendingChange: DraftStateChange?
+    @State private var pendingChange: PullRequestStatusChange?
     @State private var isStatusMenuPresented = false
 
     private var canEdit: Bool {
         pullRequest.scopes.contains(.authored)
-            && (pullRequest.status == .open || pullRequest.status == .draft)
+            && pullRequest.status != .merged
             && !store.isShowingPreviewData
     }
 
@@ -411,7 +411,7 @@ private struct PullRequestStatusControl: View {
         if canEdit {
             AppDropdown(
                 isPresented: $isStatusMenuPresented,
-                width: 172
+                width: 188
             ) {
                 HStack(spacing: 7) {
                     Text(pullRequest.statusLabel)
@@ -432,53 +432,128 @@ private struct PullRequestStatusControl: View {
                 .contentShape(Capsule())
             } menuContent: {
                 VStack(spacing: 2) {
-                    AppDropdownRow(isSelected: pullRequest.isDraft) {
-                        selectStatus(isDraft: true)
-                    } content: {
-                        Text("Draft")
-                            .font(.system(size: 11.5, weight: .medium))
-                    }
+                    if pullRequest.status == .closed {
+                        AppDropdownRow(isSelected: false) {
+                            selectStatus(.reopen)
+                        } content: {
+                            Text("Reopen pull request")
+                                .font(.system(size: 11.5, weight: .medium))
+                        }
+                    } else {
+                        AppDropdownRow(isSelected: pullRequest.isDraft) {
+                            selectStatus(.draft)
+                        } content: {
+                            Text("Draft")
+                                .font(.system(size: 11.5, weight: .medium))
+                        }
 
-                    AppDropdownRow(isSelected: !pullRequest.isDraft) {
-                        selectStatus(isDraft: false)
-                    } content: {
-                        Text("Ready for review")
-                            .font(.system(size: 11.5, weight: .medium))
+                        AppDropdownRow(isSelected: !pullRequest.isDraft) {
+                            selectStatus(.ready)
+                        } content: {
+                            Text("Ready for review")
+                                .font(.system(size: 11.5, weight: .medium))
+                        }
+
+                        Divider()
+                            .overlay(Color.subtleBorder)
+                            .padding(.vertical, 4)
+
+                        AppDropdownRow(
+                            isSelected: false,
+                            foregroundStyle: .red
+                        ) {
+                            selectStatus(.close)
+                        } content: {
+                            Text("Close pull request")
+                                .font(.system(size: 11.5, weight: .medium))
+                        }
                     }
                 }
             }
             .fixedSize()
             .disabled(store.isPerformingMutation)
             .alert(item: $pendingChange) { change in
-                Alert(
-                    title: Text(change.isDraft ? "Convert this pull request to draft?" : "Mark this pull request ready for review?"),
-                    message: Text(change.isDraft
-                        ? "Reviewers will see that this pull request is not ready for review."
-                        : "Reviewers will be notified that this pull request is ready."),
-                    primaryButton: .default(Text(change.isDraft ? "Convert to draft" : "Mark ready")) {
-                        Task {
-                            _ = await store.updateDraftState(
-                                for: pullRequest.id,
-                                isDraft: change.isDraft
-                            )
-                        }
-                    },
-                    secondaryButton: .cancel()
-                )
+                confirmationAlert(for: change)
             }
         } else {
             Text(pullRequest.statusLabel)
         }
     }
 
-    private func selectStatus(isDraft: Bool) {
+    private func selectStatus(_ change: PullRequestStatusChange) {
         isStatusMenuPresented = false
-        guard isDraft != pullRequest.isDraft else { return }
-        pendingChange = DraftStateChange(isDraft: isDraft)
+        switch change {
+        case .draft:
+            guard !pullRequest.isDraft else { return }
+        case .ready:
+            guard pullRequest.isDraft else { return }
+        case .close:
+            guard pullRequest.status == .open || pullRequest.status == .draft else { return }
+        case .reopen:
+            guard pullRequest.status == .closed else { return }
+        }
+        pendingChange = change
+    }
+
+    private func confirmationAlert(for change: PullRequestStatusChange) -> Alert {
+        switch change {
+        case .draft:
+            Alert(
+                title: Text("Convert this pull request to draft?"),
+                message: Text("Reviewers will see that this pull request is not ready for review."),
+                primaryButton: .default(Text("Convert to draft")) {
+                    updateDraftState(isDraft: true)
+                },
+                secondaryButton: .cancel()
+            )
+        case .ready:
+            Alert(
+                title: Text("Mark this pull request ready for review?"),
+                message: Text("Reviewers will be notified that this pull request is ready."),
+                primaryButton: .default(Text("Mark ready")) {
+                    updateDraftState(isDraft: false)
+                },
+                secondaryButton: .cancel()
+            )
+        case .close:
+            Alert(
+                title: Text("Close this pull request?"),
+                message: Text("The pull request cannot be merged unless it is reopened."),
+                primaryButton: .destructive(Text("Close pull request")) {
+                    updateClosedState(isClosed: true)
+                },
+                secondaryButton: .cancel()
+            )
+        case .reopen:
+            Alert(
+                title: Text("Reopen this pull request?"),
+                message: Text("The pull request will become active again."),
+                primaryButton: .default(Text("Reopen pull request")) {
+                    updateClosedState(isClosed: false)
+                },
+                secondaryButton: .cancel()
+            )
+        }
+    }
+
+    private func updateDraftState(isDraft: Bool) {
+        Task {
+            _ = await store.updateDraftState(for: pullRequest.id, isDraft: isDraft)
+        }
+    }
+
+    private func updateClosedState(isClosed: Bool) {
+        Task {
+            _ = await store.updateClosedState(for: pullRequest.id, isClosed: isClosed)
+        }
     }
 }
 
-private struct DraftStateChange: Identifiable {
-    let isDraft: Bool
-    var id: Bool { isDraft }
+private enum PullRequestStatusChange: String, Identifiable {
+    case draft
+    case ready
+    case close
+    case reopen
+
+    var id: String { rawValue }
 }

@@ -15,7 +15,7 @@
 - Shows pull request summaries, reviewers, checks, activity, commits, changed files, and merge blockers
 - Opens all changes or a single commit in unified or split, syntax-highlighted diffs
 - Collapses individual files or the entire diff, copies file paths, opens the pull request on GitHub, and refreshes on demand
-- Edits authored pull request descriptions and changes their status between Draft and Ready for review
+- Edits authored pull request descriptions, changes their status between Draft and Ready for review, and closes or reopens them
 - Posts, replies to, quotes, edits, deletes, and locally hides comments
 - Resolves and reopens review threads, including code context for outdated comments
 - Drafts line-level comments and submits Comment, Approve, or Request changes reviews

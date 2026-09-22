@@ -463,6 +463,13 @@ struct GitHubService: Sendable {
         _ = try await run(arguments)
     }
 
+    func updateClosedState(of pullRequest: PullRequest, isClosed: Bool) async throws {
+        _ = try await run([
+            "pr", isClosed ? "close" : "reopen", String(pullRequest.number),
+            "--repo", pullRequest.repositoryFullName,
+        ])
+    }
+
     func submitReview(
         on pullRequest: PullRequest,
         event: ReviewEvent,

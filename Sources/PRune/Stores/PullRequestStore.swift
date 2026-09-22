@@ -577,6 +577,24 @@ final class PullRequestStore {
         }
     }
 
+    func updateClosedState(for id: PullRequest.ID, isClosed: Bool) async -> Bool {
+        guard let pullRequest = pullRequests.first(where: { $0.id == id }) else { return false }
+        let canChangeState = isClosed
+            ? pullRequest.status == .open || pullRequest.status == .draft
+            : pullRequest.status == .closed
+        guard canChangeState else { return false }
+
+        let succeeded = await performMutation(
+            successMessage: isClosed ? "Pull request closed." : "Pull request reopened."
+        ) {
+            try await service.updateClosedState(of: pullRequest, isClosed: isClosed)
+        }
+        if succeeded {
+            await refresh()
+        }
+        return succeeded
+    }
+
     func submitReview(
         on id: PullRequest.ID,
         event: ReviewEvent,
