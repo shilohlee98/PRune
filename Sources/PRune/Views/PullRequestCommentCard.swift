@@ -5,6 +5,8 @@ struct PullRequestCommentCard: View {
     @Environment(PullRequestStore.self) private var store
     let pullRequest: PullRequest
     let comment: PullRequestComment
+    let searchQuery: String
+    let isFindTarget: Bool
     let onOpenCode: (String, Int?, String?) -> Void
 
     @State private var editorMode: CommentEditorMode?
@@ -17,10 +19,14 @@ struct PullRequestCommentCard: View {
     init(
         pullRequest: PullRequest,
         comment: PullRequestComment,
+        searchQuery: String,
+        isFindTarget: Bool,
         onOpenCode: @escaping (String, Int?, String?) -> Void
     ) {
         self.pullRequest = pullRequest
         self.comment = comment
+        self.searchQuery = searchQuery
+        self.isFindTarget = isFindTarget
         self.onOpenCode = onOpenCode
         _isExpanded = State(
             initialValue: !comment.isResolved && comment.body.count <= 900
@@ -77,7 +83,10 @@ struct PullRequestCommentCard: View {
                                     .italic()
                                     .foregroundStyle(Color.mutedText)
                             } else {
-                                MarkdownDocumentView(markdown: comment.body)
+                                MarkdownDocumentView(
+                                    markdown: comment.body,
+                                    searchQuery: searchQuery
+                                )
                                     .textSelection(.enabled)
                             }
 
@@ -121,11 +130,19 @@ struct PullRequestCommentCard: View {
                 draft = ""
             }
         }
+        .onAppear { revealFindTarget() }
+        .onChange(of: isFindTarget) { revealFindTarget() }
+    }
+
+    private func revealFindTarget() {
+        guard isFindTarget else { return }
+        isHidden = false
+        isExpanded = true
     }
 
     private var header: some View {
         HStack(spacing: 7) {
-            Text(comment.authorLogin)
+            Text(FindHighlight.apply(searchQuery, to: AttributedString(comment.authorLogin)))
                 .font(.system(size: 11.5, weight: .semibold))
 
             if isReply {
@@ -280,7 +297,7 @@ struct PullRequestCommentCard: View {
     }
 
     private var collapsedPreview: some View {
-        Text(collapsedSummary)
+        Text(FindHighlight.apply(searchQuery, to: AttributedString(collapsedSummary)))
             .font(.system(size: 11))
             .foregroundStyle(Color.mutedText)
             .lineLimit(1)

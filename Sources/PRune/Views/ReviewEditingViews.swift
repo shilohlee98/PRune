@@ -31,6 +31,8 @@ struct GitHubFeedbackBanner: View {
 struct EditableDescriptionSection: View {
     @Environment(PullRequestStore.self) private var store
     let pullRequest: PullRequest
+    let searchQuery: String
+    let isFindTarget: Bool
 
     @State private var isEditing = false
     @State private var isExpanded = true
@@ -102,7 +104,10 @@ struct EditableDescriptionSection: View {
                 Text("No description provided.")
                     .foregroundStyle(Color.mutedText)
             } else if isExpanded {
-                MarkdownDocumentView(markdown: pullRequest.body)
+                MarkdownDocumentView(
+                    markdown: pullRequest.body,
+                    searchQuery: searchQuery
+                )
                     .textSelection(.enabled)
             }
         }
@@ -112,6 +117,9 @@ struct EditableDescriptionSection: View {
             draft = pullRequest.body
             isEditing = false
             isExpanded = true
+        }
+        .onChange(of: isFindTarget) {
+            if isFindTarget { isExpanded = true }
         }
         .alert("Update pull request description?", isPresented: $isConfirming) {
             Button("Cancel", role: .cancel) {}
@@ -183,6 +191,10 @@ struct CodeReviewSection: View {
     let pullRequest: PullRequest
     @Binding var selectedCommitOID: String?
     let navigationTarget: CodeNavigationTarget?
+    let searchQuery: String
+    let findTargetID: String?
+    let findTargetFilePath: String?
+    let findRequestID: UUID?
 
     @State private var inlineTarget: InlineCommentTarget?
     @State private var replyingCommentID: String?
@@ -247,7 +259,7 @@ struct CodeReviewSection: View {
                     rows: virtualDiffRows(viewportWidth: committedViewportWidth),
                     contentRevision: "\(virtualContentRevision)|width:\(Int(committedViewportWidth))",
                     scrollRequestID: navigationScrollRequestID,
-                    scrollTargetID: navigationAnchor
+                    scrollTargetID: findTargetID ?? navigationAnchor
                 ) { row in
                     AnyView(virtualDiffRowContent(row))
                 }
@@ -279,6 +291,14 @@ struct CodeReviewSection: View {
             replyingCommentID = nil
             expandedResolvedCommentIDs.removeAll()
             collapsedFilePaths.removeAll()
+        }
+        .onChange(of: findRequestID) {
+            if let findTargetFilePath {
+                collapsedFilePaths.remove(findTargetFilePath)
+            }
+            if let findTargetID, findTargetID.hasPrefix("inline-comment|") {
+                expandedResolvedCommentIDs.insert(String(findTargetID.dropFirst(15)))
+            }
         }
         .onChange(of: pullRequest.headRefOID) { oldHeadRefOID, newHeadRefOID in
             guard oldHeadRefOID != newHeadRefOID, !newHeadRefOID.isEmpty else { return }
@@ -359,6 +379,9 @@ struct CodeReviewSection: View {
     }
 
     private var navigationScrollRequestID: String? {
+        if let findRequestID, findTargetID != nil {
+            return "find|\(findRequestID.uuidString)|width:\(Int(committedViewportWidth))"
+        }
         guard let navigationTarget else { return nil }
         return "\(navigationTarget.id.uuidString)|width:\(Int(committedViewportWidth))"
     }
@@ -369,7 +392,7 @@ struct CodeReviewSection: View {
             "\($0.id):\($0.updatedAt.timeIntervalSinceReferenceDate):\($0.isResolved)"
         }.joined(separator: "|")
         let expandedResolved = expandedResolvedCommentIDs.sorted().joined(separator: "|")
-        return "\(diffSelectionID)|\(diffLayout.rawValue)|\(inlineTarget?.id ?? "")|\(replyingCommentID ?? "")|\(navigationTarget?.id.uuidString ?? "")|\(collapsed)|\(comments)|expanded:\(expandedResolved)|mutating:\(store.isPerformingMutation)"
+        return "\(diffSelectionID)|\(diffLayout.rawValue)|\(inlineTarget?.id ?? "")|\(replyingCommentID ?? "")|\(navigationTarget?.id.uuidString ?? "")|\(collapsed)|\(comments)|expanded:\(expandedResolved)|mutating:\(store.isPerformingMutation)|find:\(searchQuery)|target:\(findTargetID ?? "")"
     }
 
     private func virtualDiffRows(viewportWidth: CGFloat) -> [VirtualDiffRow] {
@@ -403,10 +426,11 @@ struct CodeReviewSection: View {
             }
 
             for hunk in file.hunks {
+                let hunkAnchor = "hunk|\(file.path)|\(hunk.id)"
                 rows.append(
                     VirtualDiffRow(
-                        id: "hunk|\(file.path)|\(hunk.id)",
-                        navigationIDs: [],
+                        id: hunkAnchor,
+                        navigationIDs: [hunkAnchor],
                         height: 26,
                         isGroup: false,
                         content: .hunkHeader(hunk)
@@ -506,6 +530,11 @@ struct CodeReviewSection: View {
         case let .hunkHeader(hunk):
             diffHunkHeader(hunk)
                 .padding(.horizontal, 4)
+                .overlay(alignment: .leading) {
+                    if findTargetID == row.id {
+                        Rectangle().fill(Color.blue).frame(width: 3)
+                    }
+                }
         case let .unifiedLine(file, line):
             diffLine(file: file, line: line)
                 .padding(.horizontal, 4)
@@ -604,6 +633,8 @@ struct CodeReviewSection: View {
         InlineReviewCommentView(
             comment: comment,
             side: side,
+            searchQuery: searchQuery,
+            isFindTarget: findTargetID == "inline-comment|\(comment.id)",
             isExpanded: !comment.isResolved
                 || expandedResolvedCommentIDs.contains(comment.id),
             isReplying: replyingCommentID == comment.id,
@@ -657,10 +688,11 @@ struct CodeReviewSection: View {
             return side == target.side.uppercased()
         }
         for comment in matchingComments {
+            let anchor = "inline-comment|\(comment.id)"
             rows.append(
                 VirtualDiffRow(
-                    id: "inline-comment|\(comment.id)",
-                    navigationIDs: [],
+                    id: anchor,
+                    navigationIDs: [anchor],
                     height: inlineCommentHeight(
                         comment,
                         isExpanded: !comment.isResolved
@@ -690,7 +722,9 @@ struct CodeReviewSection: View {
             1,
             Int(ceil(Double(comment.body.count) / Double(charactersPerLine)))
         )
-        let visibleLines = min(6, max(explicitLines, wrappedLines))
+        let visibleLines = findTargetID == "inline-comment|\(comment.id)"
+            ? max(explicitLines, wrappedLines)
+            : min(6, max(explicitLines, wrappedLines))
         let hasThreadAction = comment.reviewThreadID != nil
             && ((comment.isResolved && comment.viewerCanUnresolve)
                 || (!comment.isResolved && comment.viewerCanResolve))
@@ -779,7 +813,7 @@ struct CodeReviewSection: View {
                         .frame(width: 12)
                     Image(systemName: "doc.text")
                         .foregroundStyle(Color.mutedText)
-                    Text(file.path)
+                    Text(FindHighlight.apply(searchQuery, to: AttributedString(file.path)))
                         .font(.system(size: 10, design: .monospaced))
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -806,13 +840,14 @@ struct CodeReviewSection: View {
         .font(.system(size: 9.5, design: .monospaced))
         .padding(.horizontal, 8)
         .frame(maxWidth: .infinity, minHeight: 30)
-        .background(Color.elevatedBackground)
+        .background(findTargetID == CodeNavigationTarget.fileAnchor(for: file.path)
+            ? Color.blue.opacity(0.25) : Color.elevatedBackground)
         .clipShape(RoundedRectangle(cornerRadius: 4))
         .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.subtleBorder))
     }
 
     private func diffHunkHeader(_ hunk: PullRequestDiffHunk) -> some View {
-        Text(hunk.header)
+        Text(FindHighlight.apply(searchQuery, to: AttributedString(hunk.header)))
             .font(.system(size: 10, design: .monospaced))
             .foregroundStyle(Color(red: 0.58, green: 0.72, blue: 0.88))
             .lineLimit(1)
@@ -872,16 +907,18 @@ struct CodeReviewSection: View {
             )
         }
         let isSelected = target?.id == inlineTarget?.id
-        let isNavigationTarget = navigationTarget?.matches(path: file.path, line: line) == true
         let anchor = line.reviewLine.map {
             CodeNavigationTarget.lineAnchor(path: file.path, line: $0, side: line.reviewSide)
         } ?? line.id
+        let isNavigationTarget = navigationTarget?.matches(path: file.path, line: line) == true
+            || findTargetID == anchor
 
         return VStack(spacing: 0) {
             UnifiedDiffLineRow(
                 line: line,
                 isSelected: isSelected,
                 isNavigationTarget: isNavigationTarget,
+                searchQuery: searchQuery,
                 canComment: target != nil
             ) {
                 guard let target else { return }
@@ -1010,16 +1047,16 @@ struct CodeReviewSection: View {
                 kind: line.kind
             )
             let isSelected = inlineTarget?.id == target.id
-            let isNavigationTarget = navigationTarget?.matches(
-                path: file.path,
-                lineNumber: lineNumber,
-                side: side
-            ) == true
             let anchor = CodeNavigationTarget.lineAnchor(
                 path: file.path,
                 line: lineNumber,
                 side: side
             )
+            let isNavigationTarget = navigationTarget?.matches(
+                path: file.path,
+                lineNumber: lineNumber,
+                side: side
+            ) == true || findTargetID == anchor
 
             SplitDiffLineCell(
                 line: line,
@@ -1027,6 +1064,7 @@ struct CodeReviewSection: View {
                 side: side,
                 isSelected: isSelected,
                 isNavigationTarget: isNavigationTarget,
+                searchQuery: searchQuery,
                 emphasizedRanges: emphasizedRanges
             ) {
                 if isSelected {
@@ -1094,6 +1132,7 @@ private struct UnifiedDiffLineRow: View {
     let line: PullRequestDiffLine
     let isSelected: Bool
     let isNavigationTarget: Bool
+    let searchQuery: String
     let canComment: Bool
     let onToggleComment: () -> Void
 
@@ -1111,7 +1150,10 @@ private struct UnifiedDiffLineRow: View {
                 Text(DiffVisualStyle.marker(for: line.kind))
                     .frame(width: 22, height: 24, alignment: .center)
                     .foregroundStyle(DiffVisualStyle.markerColor(for: line.kind))
-                SyntaxHighlightedCode(source: line.content.isEmpty ? " " : line.content)
+                SyntaxHighlightedCode(
+                    source: line.content.isEmpty ? " " : line.content,
+                    searchQuery: searchQuery
+                )
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.trailing, 10)
             }
@@ -1149,6 +1191,7 @@ private struct SplitDiffLineCell: View {
     let side: String
     let isSelected: Bool
     let isNavigationTarget: Bool
+    let searchQuery: String
     let emphasizedRanges: [Range<Int>]
     let onToggleComment: () -> Void
 
@@ -1166,7 +1209,8 @@ private struct SplitDiffLineCell: View {
                 SyntaxHighlightedCode(
                     source: line.content.isEmpty ? " " : line.content,
                     emphasizedRanges: emphasizedRanges,
-                    emphasisColor: DiffVisualStyle.intralineBackground(for: line.kind)
+                    emphasisColor: DiffVisualStyle.intralineBackground(for: line.kind),
+                    searchQuery: searchQuery
                 )
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.trailing, 8)
@@ -1461,6 +1505,8 @@ private struct InlineCommentComposerView: View {
 private struct InlineReviewCommentView: View {
     let comment: PullRequestComment
     let side: String
+    let searchQuery: String
+    let isFindTarget: Bool
     let isExpanded: Bool
     let isReplying: Bool
     let isInteractionDisabled: Bool
@@ -1490,7 +1536,10 @@ private struct InlineReviewCommentView: View {
                             imageURL: comment.authorAvatarURL
                                 ?? GitHubAvatarURL.forLogin(comment.authorLogin, size: 46)
                         )
-                        Text(comment.authorLogin)
+                        Text(FindHighlight.apply(
+                            searchQuery,
+                            to: AttributedString(comment.authorLogin)
+                        ))
                             .font(.system(size: 11, weight: .semibold))
                         Text(comment.ageLabel)
                             .font(.system(size: 9.5))
@@ -1502,10 +1551,13 @@ private struct InlineReviewCommentView: View {
                         commentMenu
                     }
 
-                    Text(comment.body.isEmpty ? "No comment body" : comment.body)
+                    Text(FindHighlight.apply(
+                        searchQuery,
+                        to: AttributedString(comment.body.isEmpty ? "No comment body" : comment.body)
+                    ))
                         .font(.system(size: 11))
                         .foregroundStyle(comment.body.isEmpty ? Color.mutedText : Color.secondaryText)
-                        .lineLimit(6)
+                        .lineLimit(isFindTarget ? nil : 6)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -1532,7 +1584,8 @@ private struct InlineReviewCommentView: View {
         .clipShape(RoundedRectangle(cornerRadius: 7))
         .overlay(
             RoundedRectangle(cornerRadius: 7)
-                .stroke(comment.isResolved ? Color.white.opacity(0.16) : Color.blue.opacity(0.48))
+                .stroke(isFindTarget ? Color.yellow.opacity(0.8)
+                    : comment.isResolved ? Color.white.opacity(0.16) : Color.blue.opacity(0.48))
         )
     }
 

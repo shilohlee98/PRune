@@ -5,15 +5,18 @@ struct SyntaxHighlightedCode: View {
     let source: String
     let emphasizedRanges: [Range<Int>]
     let emphasisColor: Color?
+    let searchQuery: String
 
     init(
         source: String,
         emphasizedRanges: [Range<Int>] = [],
-        emphasisColor: Color? = nil
+        emphasisColor: Color? = nil,
+        searchQuery: String = ""
     ) {
         self.source = source
         self.emphasizedRanges = emphasizedRanges
         self.emphasisColor = emphasisColor
+        self.searchQuery = searchQuery
     }
 
     var body: some View {
@@ -30,25 +33,25 @@ struct SyntaxHighlightedCode: View {
 
     private var highlightedSource: AttributedString {
         var highlighted = SyntaxHighlightCache.shared.attributedString(for: source)
-        guard let emphasisColor else { return highlighted }
-
-        for range in emphasizedRanges {
-            guard
-                range.lowerBound >= 0,
-                range.upperBound <= highlighted.characters.count,
-                range.lowerBound < range.upperBound
-            else { continue }
-            let lowerBound = highlighted.characters.index(
-                highlighted.startIndex,
-                offsetBy: range.lowerBound
-            )
-            let upperBound = highlighted.characters.index(
-                highlighted.startIndex,
-                offsetBy: range.upperBound
-            )
-            highlighted[lowerBound..<upperBound].backgroundColor = emphasisColor
+        if let emphasisColor {
+            for range in emphasizedRanges {
+                guard
+                    range.lowerBound >= 0,
+                    range.upperBound <= highlighted.characters.count,
+                    range.lowerBound < range.upperBound
+                else { continue }
+                let lowerBound = highlighted.characters.index(
+                    highlighted.startIndex,
+                    offsetBy: range.lowerBound
+                )
+                let upperBound = highlighted.characters.index(
+                    highlighted.startIndex,
+                    offsetBy: range.upperBound
+                )
+                highlighted[lowerBound..<upperBound].backgroundColor = emphasisColor
+            }
         }
-        return highlighted
+        return FindHighlight.apply(searchQuery, to: highlighted)
     }
 }
 

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MarkdownDocumentView: View {
     let markdown: String
+    var searchQuery = ""
 
     private var blocks: [MarkdownBlock] {
         MarkdownBlock.parse(markdown)
@@ -77,7 +78,7 @@ struct MarkdownDocumentView: View {
                         .font(.system(size: 8.5, weight: .medium))
                         .foregroundStyle(Color.mutedText)
                 }
-                Text(code)
+                Text(FindHighlight.apply(searchQuery, to: AttributedString(code)))
                     .font(.system(size: 10.5, design: .monospaced))
                     .foregroundStyle(Color.white.opacity(0.76))
                     .textSelection(.enabled)
@@ -93,10 +94,11 @@ struct MarkdownDocumentView: View {
     }
 
     private func inlineMarkdown(_ value: String) -> AttributedString {
-        (try? AttributedString(
+        let rendered = (try? AttributedString(
             markdown: value,
             options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
         )) ?? AttributedString(value)
+        return FindHighlight.apply(searchQuery, to: rendered)
     }
 }
 

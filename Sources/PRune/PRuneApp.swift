@@ -39,6 +39,21 @@ struct PRuneApp: App {
                     Task { await store.refresh() }
                 }
                 .keyboardShortcut("r", modifiers: .command)
+
+                Button("Find in Page") {
+                    DetailFindCommand.send(.open)
+                }
+                .keyboardShortcut("f", modifiers: .command)
+
+                Button("Find Next") {
+                    DetailFindCommand.send(.next)
+                }
+                .keyboardShortcut("g", modifiers: .command)
+
+                Button("Find Previous") {
+                    DetailFindCommand.send(.previous)
+                }
+                .keyboardShortcut("g", modifiers: [.command, .shift])
             }
         }
     }
