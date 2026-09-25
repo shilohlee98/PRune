@@ -18,6 +18,7 @@ final class PullRequestStore {
     var checkFilter: CheckState = .all
     var expandedRepositories: Set<String> = []
     var isLoading = false
+    var isChangingListContext = false
     var isLoadingMore = false
     var canLoadMore = false
     var hasCompletedInitialLoad = false
@@ -111,6 +112,27 @@ final class PullRequestStore {
 
     var activeGitHubAccount: GitHubAccount? {
         githubAccounts.first(where: \.isActive)
+    }
+
+    func changeScope(to newScope: PullRequestScope) {
+        guard scope != newScope, !isChangingListContext, !isLoading, !isLoadingMore else { return }
+        scope = newScope
+        reloadForListContextChange()
+    }
+
+    func changeStatusFilter(to newStatus: PullRequestStatusFilter) {
+        guard statusFilter != newStatus, !isChangingListContext, !isLoading, !isLoadingMore else { return }
+        statusFilter = newStatus
+        reloadForListContextChange()
+    }
+
+    private func reloadForListContextChange() {
+        isChangingListContext = true
+        errorMessage = nil
+        Task {
+            await refresh()
+            isChangingListContext = false
+        }
     }
 
     func refresh() async {

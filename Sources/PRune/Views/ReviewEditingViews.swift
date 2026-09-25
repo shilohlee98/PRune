@@ -323,46 +323,47 @@ struct CodeReviewSection: View {
     }
 
     private var reviewToolbar: some View {
-        HStack(spacing: 8) {
-            Text("Files changed")
-                .font(.system(size: 11.5, weight: .semibold))
+        GeometryReader { geometry in
+            HStack(spacing: 6) {
+                commitSelector(compact: geometry.size.width < 560)
 
-            if let diffTotals {
-                Text("+\(diffTotals.additions)")
-                    .foregroundStyle(Color.green.opacity(0.78))
-                Text("−\(diffTotals.deletions)")
-                    .foregroundStyle(Color.red.opacity(0.78))
+                if let diffTotals {
+                    HStack(spacing: 8) {
+                        Text("+\(diffTotals.additions)")
+                            .foregroundStyle(Color.green.opacity(0.78))
+                        Text("−\(diffTotals.deletions)")
+                            .foregroundStyle(Color.red.opacity(0.78))
+                    }
+                    .fixedSize(horizontal: true, vertical: false)
+                }
+
+                Spacer(minLength: 4)
+
+                DiffToolbarActionButton(
+                    accessibilityLabel: "Collapse all files",
+                    systemImage: "rectangle.compress.vertical",
+                    help: "Collapse all files",
+                    isDisabled: currentDiffFiles?.isEmpty != false || allFilesCollapsed
+                ) {
+                    collapsedFilePaths.formUnion(currentDiffFiles?.map(\.path) ?? [])
+                }
+
+                DiffToolbarActionButton(
+                    accessibilityLabel: "Expand all files",
+                    systemImage: "rectangle.expand.vertical",
+                    help: "Expand all files",
+                    isDisabled: collapsedFilePaths.isEmpty
+                ) {
+                    collapsedFilePaths.removeAll()
+                }
+
+                DiffLayoutToggleButton(layout: $diffLayout)
             }
-
-            Spacer(minLength: 10)
-
-            if !pullRequest.commits.isEmpty {
-                commitSelector
-            }
-
-            DiffToolbarActionButton(
-                accessibilityLabel: "Collapse all files",
-                systemImage: "rectangle.compress.vertical",
-                help: "Collapse all files",
-                isDisabled: currentDiffFiles?.isEmpty != false || allFilesCollapsed
-            ) {
-                collapsedFilePaths.formUnion(currentDiffFiles?.map(\.path) ?? [])
-            }
-
-            DiffToolbarActionButton(
-                accessibilityLabel: "Expand all files",
-                systemImage: "rectangle.expand.vertical",
-                help: "Expand all files",
-                isDisabled: collapsedFilePaths.isEmpty
-            ) {
-                collapsedFilePaths.removeAll()
-            }
-
-            DiffLayoutToggleButton(layout: $diffLayout)
+            .font(.system(size: 10.5))
+            .padding(.horizontal, 14)
+            .frame(height: 36)
         }
-        .font(.system(size: 10))
-        .padding(.horizontal, 10)
-        .frame(height: 38)
+        .frame(height: 36)
         .background(Color.panelBackground)
         .overlay(alignment: .bottom) {
             Divider().overlay(Color.subtleBorder)
@@ -735,7 +736,7 @@ struct CodeReviewSection: View {
         return commentHeight + (isReplying ? 78 : 0) + 8
     }
 
-    private var commitSelector: some View {
+    private func commitSelector(compact: Bool) -> some View {
         AppDropdown(
             isPresented: $isCommitMenuPresented,
             width: 500
@@ -747,14 +748,14 @@ struct CodeReviewSection: View {
                 Text(selectedCommit.map { "\($0.shortOID)  \($0.messageHeadline)" } ?? "All changes")
                     .font(.system(size: 10.5, weight: .medium))
                     .lineLimit(1)
-                Spacer()
+                Spacer(minLength: 4)
                 Image(systemName: "chevron.down")
                     .font(.system(size: 8, weight: .semibold))
                     .foregroundStyle(Color.mutedText)
             }
-            .padding(.horizontal, 8)
-            .frame(maxWidth: .infinity, minHeight: 28)
-            .appToolbarSurface(isHovered: isCommitSelectorHovered)
+            .padding(.horizontal, 9)
+            .frame(maxWidth: .infinity, minHeight: 30)
+            .appHeaderSurface(isHovered: isCommitSelectorHovered, restingOpacity: 0.045)
         } menuContent: {
             VStack(spacing: 4) {
                 AppDropdownRow(isSelected: selectedCommitOID == nil) {
@@ -795,7 +796,11 @@ struct CodeReviewSection: View {
                 .frame(height: min(CGFloat(pullRequest.commits.count) * 36, 252))
             }
         }
-        .frame(minWidth: 120, idealWidth: 170, maxWidth: 190)
+        .frame(
+            minWidth: compact ? 100 : 120,
+            idealWidth: compact ? 125 : 160,
+            maxWidth: compact ? 125 : 180
+        )
         .onHover { isCommitSelectorHovered = $0 }
         .animation(.easeOut(duration: 0.12), value: isCommitSelectorHovered)
     }
@@ -1333,8 +1338,8 @@ private struct DiffToolbarActionButton: View {
             Image(systemName: systemImage)
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(Color.secondaryText)
-                .frame(width: 28, height: 28)
-                .appToolbarSurface(isHovered: isHovered, isEnabled: !isDisabled)
+                .frame(width: 30, height: 30)
+                .appHeaderSurface(isHovered: isHovered, isEnabled: !isDisabled)
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)
@@ -1432,8 +1437,8 @@ private struct DiffLayoutToggleButton: View {
             }
         } label: {
             DiffLayoutGlyph(layout: targetLayout)
-                .frame(width: 28, height: 28)
-                .appToolbarSurface(isHovered: isHovering)
+                .frame(width: 30, height: 30)
+                .appHeaderSurface(isHovered: isHovering)
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }

@@ -14,33 +14,37 @@ struct PullRequestListView: View {
                     .padding(.top, 16)
                     .padding(.bottom, 12)
 
-                if let errorMessage = store.errorMessage {
+                if !store.isChangingListContext, let errorMessage = store.errorMessage {
                     errorBanner(errorMessage)
                 }
 
-                ScrollView {
-                    LazyVStack(spacing: 9) {
-                        ForEach(store.groupedPullRequests, id: \.repository) { group in
-                            RepositoryGroupView(repository: group.repository, items: group.items)
-                        }
+                if store.isChangingListContext {
+                    PanelLoadingView(message: "Loading pull requests…")
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 9) {
+                            ForEach(store.groupedPullRequests, id: \.repository) { group in
+                                RepositoryGroupView(repository: group.repository, items: group.items)
+                            }
 
-                        if store.canLoadMore || store.isLoadingMore {
-                            loadMoreButton
-                                .padding(.top, 12)
-                        }
+                            if store.canLoadMore || store.isLoadingMore {
+                                loadMoreButton
+                                    .padding(.top, 12)
+                            }
 
-                        if store.filteredPullRequests.isEmpty && !store.isLoading {
-                            ContentUnavailableView(
-                                "No pull requests",
-                                systemImage: "magnifyingglass",
-                                description: Text("Try another search or check status.")
-                            )
-                            .frame(height: 280)
+                            if store.filteredPullRequests.isEmpty && !store.isLoading {
+                                ContentUnavailableView(
+                                    "No pull requests",
+                                    systemImage: "magnifyingglass",
+                                    description: Text("Try another search or check status.")
+                                )
+                                .frame(height: 280)
+                            }
                         }
+                        .padding(.bottom, 40)
                     }
-                    .padding(.bottom, 40)
+                    .scrollIndicators(.never)
                 }
-                .scrollIndicators(.never)
             }
             .frame(maxWidth: 660)
             .padding(.horizontal, 20)
@@ -107,12 +111,8 @@ struct PullRequestListView: View {
 
                     ForEach(PullRequestStatusFilter.allCases) { status in
                         AppDropdownRow(isSelected: store.statusFilter == status) {
-                            let changed = store.statusFilter != status
                             isFilterPresented = false
-                            store.statusFilter = status
-                            if changed {
-                                Task { await store.refresh() }
-                            }
+                            store.changeStatusFilter(to: status)
                         } content: {
                             HStack(spacing: 8) {
                                 Image(systemName: statusIcon(status))
@@ -151,7 +151,7 @@ struct PullRequestListView: View {
             }
             .fixedSize()
             .onHover { isFilterHovered = $0 }
-            .disabled(store.isLoading || store.isLoadingMore)
+            .disabled(store.isChangingListContext || store.isLoading || store.isLoadingMore)
         }
     }
 
@@ -282,7 +282,7 @@ private struct PullRequestRow: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 7) {
-                PullRequestGlyph(state: pullRequest.checkState, isSelected: isSelected)
+                PullRequestGlyph(pullRequest: pullRequest, isSelected: isSelected)
                     .padding(.leading, 5)
 
                 VStack(alignment: .leading, spacing: 2) {

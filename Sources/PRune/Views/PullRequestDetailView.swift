@@ -73,7 +73,11 @@ struct PullRequestDetailView: View {
         VStack(spacing: 0) {
             GitHubFeedbackBanner()
 
-            if let pullRequest {
+            if store.isChangingListContext {
+                PanelLoadingView(
+                    message: tab == .summary ? "Loading summary…" : "Loading code…"
+                )
+            } else if let pullRequest {
                 if tab == .summary {
                     ScrollViewReader { proxy in
                         ScrollView {
@@ -98,7 +102,7 @@ struct PullRequestDetailView: View {
         }
         .background(Color.panelBackground)
         .overlay(alignment: .topTrailing) {
-            if isFindPresented {
+            if isFindPresented && !store.isChangingListContext {
                 FloatingFindPanel(
                     query: $findQuery,
                     tab: tab,

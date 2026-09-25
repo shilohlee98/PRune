@@ -155,11 +155,53 @@ extension View {
     func appToolbarSurface(isHovered: Bool, isEnabled: Bool = true) -> some View {
         modifier(AppToolbarSurface(isHovered: isHovered, isEnabled: isEnabled))
     }
+
+    func appHeaderSurface(
+        isHovered: Bool,
+        isEnabled: Bool = true,
+        restingOpacity: Double = 0
+    ) -> some View {
+        background {
+            RoundedRectangle(cornerRadius: 7)
+                .fill(Color.white.opacity(isHovered && isEnabled ? 0.085 : restingOpacity))
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 7))
+        .opacity(isEnabled ? 1 : 0.42)
+        .animation(.easeOut(duration: 0.12), value: isHovered)
+    }
+}
+
+struct PanelLoadingView: View {
+    let message: String
+
+    var body: some View {
+        VStack(spacing: 10) {
+            ProgressView()
+                .controlSize(.regular)
+            Text(message)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Color.secondaryText)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
 }
 
 struct PullRequestGlyph: View {
-    let state: CheckState
+    let pullRequest: PullRequest
     var isSelected = false
+
+    private var status: PullRequestStatus {
+        pullRequest.status == .open && pullRequest.isDraft ? .draft : pullRequest.status
+    }
+
+    private var tint: Color {
+        switch status {
+        case .draft: Color.white.opacity(0.48)
+        case .closed: Color(red: 0.94, green: 0.36, blue: 0.40)
+        case .open: Color(red: 0.31, green: 0.78, blue: 0.44)
+        case .merged: Color(red: 0.69, green: 0.49, blue: 0.89)
+        }
+    }
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
@@ -175,17 +217,19 @@ struct PullRequestGlyph: View {
                 )
                 context.stroke(
                     path,
-                    with: .color(.white.opacity(0.43)),
+                    with: .color(tint),
                     style: StrokeStyle(lineWidth: 1.15, lineCap: .round, lineJoin: .round)
                 )
                 context.fill(
                     Path(ellipseIn: CGRect(x: 3.35, y: 0.35, width: 3.3, height: 3.3)),
-                    with: .color(.white.opacity(0.43))
+                    with: .color(tint)
                 )
             }
             .frame(width: 15, height: 15)
 
-            StateDot(state: state)
+            Circle()
+                .fill(tint)
+                .frame(width: 7, height: 7)
                 .overlay(
                     Circle().stroke(
                         isSelected ? Color.selectedBackground : Color.appBackground,

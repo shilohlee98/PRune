@@ -5,24 +5,25 @@ struct ContentView: View {
     @State private var detailTab = DetailTab.summary
     @State private var reviewTarget: PullRequest?
     @State private var pendingMergeAction: PendingMergeAction?
-    @State private var isReviewButtonHovered = false
     @State private var isMergeButtonHovered = false
     @State private var isRefreshButtonHovered = false
     @State private var isMergePopoverPresented = false
     @State private var isAccountPopoverPresented = false
-    @State private var isSwitchingScope = false
+    @State private var sidebarWidth: CGFloat = 420
+    @State private var sidebarResizeStartWidth: CGFloat?
 
     var body: some View {
         Group {
             if !store.hasCompletedInitialLoad
-                || isSwitchingScope
-                || (store.isLoading && store.pullRequests.isEmpty)
+                || (store.isLoading && store.pullRequests.isEmpty && !store.isChangingListContext)
             {
                 VStack(spacing: 0) {
                     standaloneTitleBar
                     initialLoadingView
                 }
-            } else if store.pullRequests.isEmpty, let errorMessage = store.errorMessage {
+            } else if !store.isChangingListContext,
+                      store.pullRequests.isEmpty,
+                      let errorMessage = store.errorMessage {
                 VStack(spacing: 0) {
                     standaloneTitleBar
                     initialLoadFailureView(errorMessage)
@@ -52,25 +53,47 @@ struct ContentView: View {
 
     private var pullRequestWorkspace: some View {
         ZStack(alignment: .bottomLeading) {
-            HSplitView {
-                VStack(spacing: 0) {
-                    leftTitleBar
-                    PullRequestListView()
-                    GitHubAccountSwitcher(isPopoverPresented: $isAccountPopoverPresented)
-                }
-                    .frame(minWidth: 320, idealWidth: 420, maxWidth: 520)
-                    .layoutPriority(0)
+            GeometryReader { geometry in
+                let width = clampedSidebarWidth(for: geometry.size.width)
 
-                VStack(spacing: 0) {
-                    rightTitleBar
-                        .zIndex(1)
-                    PullRequestDetailView(
-                        pullRequest: store.selectedPullRequest,
-                        tab: $detailTab
-                    )
+                HStack(spacing: 0) {
+                    VStack(spacing: 0) {
+                        leftTitleBar
+                        PullRequestListView()
+                        GitHubAccountSwitcher(isPopoverPresented: $isAccountPopoverPresented)
+                    }
+                    .frame(width: width)
+
+                    VStack(spacing: 0) {
+                        rightTitleBar
+                            .zIndex(1)
+                        PullRequestDetailView(
+                            pullRequest: store.selectedPullRequest,
+                            tab: $detailTab
+                        )
+                    }
+                    .frame(maxWidth: .infinity)
                 }
-                    .frame(minWidth: 460, idealWidth: 820, maxWidth: .infinity)
-                    .layoutPriority(1)
+                .overlay(alignment: .leading) {
+                    Color.clear
+                        .frame(width: 8)
+                        .contentShape(Rectangle())
+                        .offset(x: width - 4)
+                        .gesture(
+                            DragGesture(minimumDistance: 2)
+                                .onChanged { value in
+                                    if sidebarResizeStartWidth == nil {
+                                        sidebarResizeStartWidth = width
+                                    }
+                                    sidebarWidth = min(
+                                        max((sidebarResizeStartWidth ?? width) + value.translation.width, 320),
+                                        max(320, min(520, geometry.size.width - 460))
+                                    )
+                                }
+                                .onEnded { _ in sidebarResizeStartWidth = nil }
+                        )
+                        .help("Drag to resize sidebar")
+                }
             }
 
             if isAccountPopoverPresented {
@@ -91,6 +114,10 @@ struct ContentView: View {
         .animation(.easeOut(duration: 0.12), value: isAccountPopoverPresented)
     }
 
+    private func clampedSidebarWidth(for workspaceWidth: CGFloat) -> CGFloat {
+        min(max(sidebarWidth, 320), max(320, min(520, workspaceWidth - 460)))
+    }
+
     private var leftTitleBar: some View {
         HStack(spacing: 0) {
             titleBarScopeTabs
@@ -98,58 +125,78 @@ struct ContentView: View {
         }
         .padding(.leading, 82)
         .padding(.trailing, 12)
-        .frame(height: 38)
+        .frame(height: 44)
         .background {
             Color.panelBackground
             WindowDragRegion()
-        }
-        .overlay(alignment: .bottom) {
-            Divider().overlay(Color.subtleBorder)
         }
     }
 
     private var rightTitleBar: some View {
-        HStack(spacing: 0) {
-            titleBarDetailTabs
-            Spacer(minLength: 12)
-            if let pullRequest = store.selectedPullRequest {
-                Button {
-                    reviewTarget = pullRequest
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "checkmark.bubble")
-                            .font(.system(size: 10, weight: .semibold))
-                        Text("Submit review")
+        GeometryReader { geometry in
+            HStack(spacing: 0) {
+                if !store.isChangingListContext {
+                    if geometry.size.width >= 700 {
+                        if let pullRequest = store.selectedPullRequest {
+                            headerPullRequestLabel(for: pullRequest)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        } else {
+                            Spacer(minLength: 0)
+                        }
                     }
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Color.primary)
-                    .padding(.horizontal, 10)
-                    .frame(height: 28)
-                    .appToolbarSurface(
-                        isHovered: isReviewButtonHovered,
-                        isEnabled: !reviewButtonDisabled(for: pullRequest)
-                    )
-                }
-                .buttonStyle(.plain)
-                .disabled(reviewButtonDisabled(for: pullRequest))
-                .onHover { isReviewButtonHovered = $0 }
-                .help(reviewButtonHelp(for: pullRequest))
-                .padding(.trailing, 8)
 
-                mergeMenu(for: pullRequest)
-                    .padding(.trailing, 8)
+                    titleBarDetailTabs
+
+                    if geometry.size.width < 700 {
+                        Spacer(minLength: 8)
+                        titleBarActions
+                    } else {
+                        titleBarActions
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                    }
+                }
             }
-            refreshButton
+            .padding(.horizontal, 14)
+            .frame(height: 44)
         }
-        .padding(.horizontal, 14)
-        .frame(height: 38)
+        .frame(height: 44)
         .background {
             Color.panelBackground
             WindowDragRegion()
         }
-        .overlay(alignment: .bottom) {
-            Divider().overlay(Color.subtleBorder)
+    }
+
+    private func headerPullRequestLabel(for pullRequest: PullRequest) -> some View {
+        HStack(spacing: 8) {
+            PullRequestGlyph(pullRequest: pullRequest)
+            Text(pullRequest.title)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Color.secondaryText)
+                .lineLimit(1)
+                .truncationMode(.tail)
         }
+        .help(pullRequest.title)
+    }
+
+    private var titleBarActions: some View {
+        HStack(spacing: 6) {
+            if !store.isChangingListContext,
+               let pullRequest = store.selectedPullRequest {
+                mergeMenu(for: pullRequest)
+
+                Button {
+                    reviewTarget = pullRequest
+                } label: {
+                    Label("Submit review", systemImage: "checkmark.bubble")
+                        .frame(height: 30)
+                }
+                .buttonStyle(.appPrimary)
+                .disabled(reviewButtonDisabled(for: pullRequest))
+                .help(reviewButtonHelp(for: pullRequest))
+            }
+            refreshButton
+        }
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     private func reviewButtonDisabled(for pullRequest: PullRequest) -> Bool {
@@ -177,9 +224,10 @@ struct ContentView: View {
                 autoMergeEnabled: pullRequest.autoMergeEnabled,
                 isBlocked: isBlocked
             )
-            .appToolbarSurface(
+            .appHeaderSurface(
                 isHovered: isMergeButtonHovered,
-                isEnabled: !isDisabled
+                isEnabled: !isDisabled,
+                restingOpacity: 0.045
             )
         } menuContent: {
             mergeActionsPopover(for: pullRequest)
@@ -339,13 +387,10 @@ struct ContentView: View {
         }
         .padding(.leading, 82)
         .padding(.trailing, 14)
-        .frame(height: 38)
+        .frame(height: 44)
         .background {
             Color.panelBackground
             WindowDragRegion()
-        }
-        .overlay(alignment: .bottom) {
-            Divider().overlay(Color.subtleBorder)
         }
     }
 
@@ -363,8 +408,8 @@ struct ContentView: View {
                         .foregroundStyle(Color.mutedText)
                 }
             }
-            .frame(width: 28, height: 28)
-            .appToolbarSurface(
+            .frame(width: 30, height: 30)
+            .appHeaderSurface(
                 isHovered: isRefreshButtonHovered,
                 isEnabled: !store.isLoading
             )
@@ -381,15 +426,9 @@ struct ContentView: View {
                 TitleBarTab(
                     title: scope.rawValue,
                     isSelected: store.scope == scope,
-                    isEnabled: !store.isLoading && !store.isLoadingMore
+                    isEnabled: !store.isChangingListContext && !store.isLoading && !store.isLoadingMore
                 ) {
-                    guard store.scope != scope else { return }
-                    isSwitchingScope = true
-                    store.scope = scope
-                    Task {
-                        await store.refresh()
-                        isSwitchingScope = false
-                    }
+                    store.changeScope(to: scope)
                 }
             }
         }
@@ -459,7 +498,7 @@ private struct TitleBarTab: View {
                     isSelected ? Color.primary : (showsHover ? Color.secondaryText : Color.mutedText)
                 )
                 .padding(.horizontal, 9)
-                .frame(height: 25)
+                .frame(height: 28)
                 .background(
                     RoundedRectangle(cornerRadius: 7)
                         .fill(Color.white.opacity(
@@ -467,7 +506,7 @@ private struct TitleBarTab: View {
                         ))
                 )
                 .frame(minWidth: 44)
-                .frame(height: 38)
+                .frame(height: 44)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -495,7 +534,7 @@ private struct MergeMenuLabel: View {
         }
         .foregroundStyle(Color.primary.opacity(isBlocked ? 0.7 : 1))
         .padding(.horizontal, 10)
-        .frame(minWidth: 98, minHeight: 28)
+        .frame(minWidth: 94, minHeight: 30)
     }
 }
 
