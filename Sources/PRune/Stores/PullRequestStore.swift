@@ -50,24 +50,55 @@ final class PullRequestStore {
     private let service = GitHubService()
 
     var filteredPullRequests: [PullRequest] {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return pullRequests.filter { pullRequest in
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let filtered = pullRequests.filter { pullRequest in
             let matchesScope = scope == .all || pullRequest.scopes.contains(scope)
             let matchesStatus = statusFilter.includes(pullRequest.status)
             let matchesCheck = checkFilter == .all || pullRequest.checkState == checkFilter
-            let matchesSearch = query.isEmpty
-                || pullRequest.title.lowercased().contains(query)
-                || pullRequest.repositoryFullName.lowercased().contains(query)
-                || pullRequest.branch.lowercased().contains(query)
-                || String(pullRequest.number).contains(query)
-            return matchesScope && matchesStatus && matchesCheck && matchesSearch
+            return matchesScope && matchesStatus && matchesCheck
         }
+        guard !query.isEmpty else { return filtered }
+
+        return filtered.compactMap { pullRequest -> (pullRequest: PullRequest, score: Int)? in
+            let values = [
+                pullRequest.title,
+                pullRequest.repositoryFullName,
+                pullRequest.branch,
+                "#\(pullRequest.number)",
+            ]
+            guard let score = FuzzySearch.score(query, in: values) else { return nil }
+            return (pullRequest, score)
+        }
+        .sorted {
+            if $0.score != $1.score { return $0.score > $1.score }
+            return $0.pullRequest.updatedAt > $1.pullRequest.updatedAt
+        }
+        .map(\.pullRequest)
     }
 
     var groupedPullRequests: [(repository: String, items: [PullRequest])] {
-        Dictionary(grouping: filteredPullRequests, by: \.repositoryName)
-            .map { (repository: $0.key, items: $0.value.sorted { $0.updatedAt > $1.updatedAt }) }
-            .sorted { $0.repository.localizedStandardCompare($1.repository) == .orderedAscending }
+        let matches = filteredPullRequests
+        let isSearching = !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let ranks = Dictionary(matches.enumerated().map {
+            ($0.element.id, $0.offset)
+        }, uniquingKeysWith: min)
+        return Dictionary(grouping: matches, by: \.repositoryName)
+            .map { group in
+                let items = group.value.sorted {
+                    if isSearching {
+                        return ranks[$0.id, default: .max] < ranks[$1.id, default: .max]
+                    }
+                    return $0.updatedAt > $1.updatedAt
+                }
+                return (repository: group.key, items: items)
+            }
+            .sorted {
+                if isSearching {
+                    return ranks[$0.items[0].id, default: .max]
+                        < ranks[$1.items[0].id, default: .max]
+                }
+                return $0.repository.localizedStandardCompare($1.repository) == .orderedAscending
+            }
     }
 
     var selectedPullRequest: PullRequest? {
