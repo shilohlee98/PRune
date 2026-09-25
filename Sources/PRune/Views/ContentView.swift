@@ -10,10 +10,12 @@ struct ContentView: View {
     @State private var isRefreshButtonHovered = false
     @State private var isMergePopoverPresented = false
     @State private var isAccountPopoverPresented = false
+    @State private var isSwitchingScope = false
 
     var body: some View {
         Group {
             if !store.hasCompletedInitialLoad
+                || isSwitchingScope
                 || (store.isLoading && store.pullRequests.isEmpty)
             {
                 VStack(spacing: 0) {
@@ -382,8 +384,12 @@ struct ContentView: View {
                     isEnabled: !store.isLoading && !store.isLoadingMore
                 ) {
                     guard store.scope != scope else { return }
+                    isSwitchingScope = true
                     store.scope = scope
-                    Task { await store.refresh() }
+                    Task {
+                        await store.refresh()
+                        isSwitchingScope = false
+                    }
                 }
             }
         }
