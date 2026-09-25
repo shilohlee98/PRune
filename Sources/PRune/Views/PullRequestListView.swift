@@ -115,9 +115,7 @@ struct PullRequestListView: View {
                             store.changeStatusFilter(to: status)
                         } content: {
                             HStack(spacing: 8) {
-                                Image(systemName: statusIcon(status))
-                                    .frame(width: 12)
-                                    .foregroundStyle(Color.secondaryText)
+                                statusGlyph(status)
                                 Text(status.rawValue)
                                     .font(.system(size: 11.5, weight: .medium))
                             }
@@ -182,14 +180,18 @@ struct PullRequestListView: View {
         .disabled(store.isLoadingMore)
     }
 
-    private func statusIcon(_ status: PullRequestStatusFilter) -> String {
-        switch status {
-        case .all: "circle.grid.2x2"
-        case .open: "circle"
-        case .draft: "pencil"
-        case .closed: "xmark.circle"
-        case .merged: "arrow.triangle.merge"
+    private func statusGlyph(_ status: PullRequestStatusFilter) -> some View {
+        Group {
+            if let glyphStatus = PullRequestStatus(rawValue: status.rawValue) {
+                PullRequestGlyph(status: glyphStatus)
+                    .scaleEffect(0.78)
+            } else {
+                Image(systemName: "circle.grid.2x2")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color.secondaryText)
+            }
         }
+        .frame(width: 14, height: 14)
     }
 
     private func errorBanner(_ message: String) -> some View {

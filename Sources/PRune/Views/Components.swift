@@ -187,11 +187,17 @@ struct PanelLoadingView: View {
 }
 
 struct PullRequestGlyph: View {
-    let pullRequest: PullRequest
-    var isSelected = false
+    private let status: PullRequestStatus
+    var isSelected: Bool
 
-    private var status: PullRequestStatus {
-        pullRequest.status == .open && pullRequest.isDraft ? .draft : pullRequest.status
+    init(pullRequest: PullRequest, isSelected: Bool = false) {
+        status = pullRequest.status == .open && pullRequest.isDraft ? .draft : pullRequest.status
+        self.isSelected = isSelected
+    }
+
+    init(status: PullRequestStatus, isSelected: Bool = false) {
+        self.status = status
+        self.isSelected = isSelected
     }
 
     private var tint: Color {
@@ -208,13 +214,25 @@ struct PullRequestGlyph: View {
             Canvas { context, _ in
                 var path = Path()
                 path.move(to: CGPoint(x: 5, y: 2))
-                path.addLine(to: CGPoint(x: 5, y: 11.5))
-                path.move(to: CGPoint(x: 5, y: 6))
-                path.addCurve(
-                    to: CGPoint(x: 11, y: 9),
-                    control1: CGPoint(x: 5, y: 8.2),
-                    control2: CGPoint(x: 8.7, y: 9)
-                )
+                if status == .merged {
+                    path.addLine(to: CGPoint(x: 5, y: 11.5))
+                    path.move(to: CGPoint(x: 5, y: 6))
+                    path.addCurve(
+                        to: CGPoint(x: 12.5, y: 9),
+                        control1: CGPoint(x: 5, y: 8.2),
+                        control2: CGPoint(x: 10.2, y: 9)
+                    )
+                } else {
+                    path.addLine(to: CGPoint(x: 5, y: 13))
+                    path.move(to: CGPoint(x: 8.5, y: 2))
+                    path.addLine(to: CGPoint(x: 9.5, y: 2))
+                    path.addCurve(
+                        to: CGPoint(x: 12.5, y: 5),
+                        control1: CGPoint(x: 11.2, y: 2),
+                        control2: CGPoint(x: 12.5, y: 3.3)
+                    )
+                    path.addLine(to: CGPoint(x: 12.5, y: 9))
+                }
                 context.stroke(
                     path,
                     with: .color(tint),
@@ -227,16 +245,27 @@ struct PullRequestGlyph: View {
             }
             .frame(width: 15, height: 15)
 
-            Circle()
-                .fill(tint)
-                .frame(width: 7, height: 7)
-                .overlay(
-                    Circle().stroke(
-                        isSelected ? Color.selectedBackground : Color.appBackground,
-                        lineWidth: 1.6
-                    )
-                )
+            if status == .closed {
+                ZStack {
+                    Circle()
+                        .stroke(tint, lineWidth: 1.15)
+                    Image(systemName: "xmark")
+                        .font(.system(size: 4.5, weight: .heavy))
+                        .foregroundStyle(tint)
+                }
+                .frame(width: 8, height: 8)
                 .offset(x: 1, y: 1)
+            } else {
+                Circle()
+                    .fill(tint)
+                    .frame(width: 7, height: 7)
+                    .overlay {
+                        if isSelected {
+                            Circle().stroke(Color.selectedBackground, lineWidth: 1.6)
+                        }
+                    }
+                    .offset(x: 1, y: 1)
+            }
         }
         .frame(width: 18, height: 18)
     }
