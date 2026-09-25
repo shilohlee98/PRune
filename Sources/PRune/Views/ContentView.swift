@@ -402,23 +402,15 @@ struct ContentView: View {
     private var titleBarScopeTabs: some View {
         HStack(spacing: 3) {
             ForEach(PullRequestScope.allCases) { scope in
-                Button {
+                TitleBarTab(
+                    title: scope.rawValue,
+                    isSelected: store.scope == scope,
+                    isEnabled: !store.isLoading && !store.isLoadingMore
+                ) {
                     guard store.scope != scope else { return }
                     store.scope = scope
                     Task { await store.refresh() }
-                } label: {
-                    Text(scope.rawValue)
-                        .font(.system(size: 11.5))
-                        .foregroundStyle(store.scope == scope ? Color.primary : Color.mutedText)
-                        .padding(.horizontal, 9)
-                        .frame(height: 25)
-                        .background(
-                            RoundedRectangle(cornerRadius: 7)
-                                .fill(store.scope == scope ? Color.white.opacity(0.08) : .clear)
-                        )
                 }
-                .buttonStyle(.plain)
-                .disabled(store.isLoading || store.isLoadingMore)
             }
         }
     }
@@ -430,20 +422,9 @@ struct ContentView: View {
                 .foregroundStyle(Color.mutedText)
 
             ForEach(DetailTab.allCases) { item in
-                Button {
+                TitleBarTab(title: item.rawValue, isSelected: detailTab == item, isEnabled: true) {
                     detailTab = item
-                } label: {
-                    Text(item.rawValue)
-                        .font(.system(size: 11.5))
-                        .foregroundStyle(detailTab == item ? Color.primary : Color.mutedText)
-                        .padding(.horizontal, 9)
-                        .frame(height: 25)
-                        .background(
-                            RoundedRectangle(cornerRadius: 7)
-                                .fill(detailTab == item ? Color.white.opacity(0.08) : .clear)
-                        )
                 }
-                .buttonStyle(.plain)
             }
 
             if store.isLoadingDetails {
@@ -481,6 +462,42 @@ struct ContentView: View {
             .disabled(store.isLoading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+private struct TitleBarTab: View {
+    let title: String
+    let isSelected: Bool
+    let isEnabled: Bool
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        let showsHover = isHovered && isEnabled
+
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 11.5))
+                .foregroundStyle(
+                    isSelected ? Color.primary : (showsHover ? Color.secondaryText : Color.mutedText)
+                )
+                .padding(.horizontal, 9)
+                .frame(height: 25)
+                .background(
+                    RoundedRectangle(cornerRadius: 7)
+                        .fill(Color.white.opacity(
+                            isSelected ? (showsHover ? 0.13 : 0.08) : (showsHover ? 0.06 : 0)
+                        ))
+                )
+                .frame(minWidth: 44)
+                .frame(height: 38)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .onHover { isHovered = $0 }
+        .animation(.easeOut(duration: 0.12), value: showsHover)
     }
 }
 
