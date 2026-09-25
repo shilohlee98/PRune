@@ -187,7 +187,7 @@ struct CodeReviewSection: View {
     @State private var inlineTarget: InlineCommentTarget?
     @State private var replyingCommentID: String?
     @State private var expandedResolvedCommentIDs: Set<String> = []
-    @State private var diffLayout = DiffLayout.unified
+    @State private var diffLayout = DiffLayout.split
     @State private var collapsedFilePaths: Set<String> = []
     @State private var committedViewportWidth: CGFloat = 460
     @State private var isCommitMenuPresented = false
@@ -915,8 +915,18 @@ struct CodeReviewSection: View {
 
         return VStack(spacing: 0) {
             HStack(alignment: .top, spacing: 1) {
-                splitDiffCell(file: file, line: row.left, side: "LEFT")
-                splitDiffCell(file: file, line: row.right, side: "RIGHT")
+                splitDiffCell(
+                    file: file,
+                    line: row.left,
+                    side: "LEFT",
+                    emphasizedRanges: row.intralineHighlights.old
+                )
+                splitDiffCell(
+                    file: file,
+                    line: row.right,
+                    side: "RIGHT",
+                    emphasizedRanges: row.intralineHighlights.new
+                )
             }
 
             if let selectedTarget {
@@ -990,7 +1000,8 @@ struct CodeReviewSection: View {
     private func splitDiffCell(
         file: PullRequestDiffFile,
         line: PullRequestDiffLine?,
-        side: String
+        side: String,
+        emphasizedRanges: [Range<Int>]
     ) -> some View {
         if let line,
             let lineNumber = side == "LEFT" ? line.oldLine : line.newLine
@@ -1019,7 +1030,8 @@ struct CodeReviewSection: View {
                 lineNumber: lineNumber,
                 side: side,
                 isSelected: isSelected,
-                isNavigationTarget: isNavigationTarget
+                isNavigationTarget: isNavigationTarget,
+                emphasizedRanges: emphasizedRanges
             ) {
                 if isSelected {
                     cancelInlineComment()
@@ -1141,6 +1153,7 @@ private struct SplitDiffLineCell: View {
     let side: String
     let isSelected: Bool
     let isNavigationTarget: Bool
+    let emphasizedRanges: [Range<Int>]
     let onToggleComment: () -> Void
 
     @State private var isHovering = false
@@ -1154,7 +1167,11 @@ private struct SplitDiffLineCell: View {
                 Text(DiffVisualStyle.splitMarker(for: line.kind, side: side))
                     .frame(width: 22, height: 24, alignment: .center)
                     .foregroundStyle(DiffVisualStyle.markerColor(for: line.kind))
-                SyntaxHighlightedCode(source: line.content.isEmpty ? " " : line.content)
+                SyntaxHighlightedCode(
+                    source: line.content.isEmpty ? " " : line.content,
+                    emphasizedRanges: emphasizedRanges,
+                    emphasisColor: DiffVisualStyle.intralineBackground(for: line.kind)
+                )
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.trailing, 8)
             }
@@ -1223,6 +1240,17 @@ private enum DiffVisualStyle {
         case .context: .clear
         case .addition: Color(red: 0.12, green: 0.25, blue: 0.16).opacity(0.88)
         case .deletion: Color(red: 0.28, green: 0.12, blue: 0.14).opacity(0.84)
+        }
+    }
+
+    static func intralineBackground(for kind: DiffLineKind) -> Color {
+        switch kind {
+        case .context:
+            .clear
+        case .addition:
+            Color(red: 0.20, green: 0.48, blue: 0.27).opacity(0.96)
+        case .deletion:
+            Color(red: 0.56, green: 0.22, blue: 0.25).opacity(0.94)
         }
     }
 }

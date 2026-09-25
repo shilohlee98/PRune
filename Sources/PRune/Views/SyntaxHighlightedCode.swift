@@ -1,10 +1,23 @@
+import Foundation
 import SwiftUI
 
 struct SyntaxHighlightedCode: View {
     let source: String
+    let emphasizedRanges: [Range<Int>]
+    let emphasisColor: Color?
+
+    init(
+        source: String,
+        emphasizedRanges: [Range<Int>] = [],
+        emphasisColor: Color? = nil
+    ) {
+        self.source = source
+        self.emphasizedRanges = emphasizedRanges
+        self.emphasisColor = emphasisColor
+    }
 
     var body: some View {
-        SyntaxHighlightCache.shared.text(for: source)
+        Text(highlightedSource)
             .font(.system(size: 10.5, design: .monospaced))
             .lineLimit(nil)
             .lineSpacing(10)
@@ -14,6 +27,29 @@ struct SyntaxHighlightedCode: View {
             .padding(.vertical, 5)
             .textSelection(.enabled)
     }
+
+    private var highlightedSource: AttributedString {
+        var highlighted = SyntaxHighlightCache.shared.attributedString(for: source)
+        guard let emphasisColor else { return highlighted }
+
+        for range in emphasizedRanges {
+            guard
+                range.lowerBound >= 0,
+                range.upperBound <= highlighted.characters.count,
+                range.lowerBound < range.upperBound
+            else { continue }
+            let lowerBound = highlighted.characters.index(
+                highlighted.startIndex,
+                offsetBy: range.lowerBound
+            )
+            let upperBound = highlighted.characters.index(
+                highlighted.startIndex,
+                offsetBy: range.upperBound
+            )
+            highlighted[lowerBound..<upperBound].backgroundColor = emphasisColor
+        }
+        return highlighted
+    }
 }
 
 @MainActor
@@ -22,16 +58,27 @@ private final class SyntaxHighlightCache {
 
     private let maximumEntryCount = 12_000
     private let evictionCount = 3_000
-    private var values: [String: Text] = [:]
+    private var values: [String: AttributedString] = [:]
     private var insertionOrder: [String] = []
 
-    func text(for source: String) -> Text {
+    func attributedString(for source: String) -> AttributedString {
         if let cached = values[source] {
             return cached
         }
 
-        let highlighted = SyntaxToken.tokenize(source).reduce(Text("")) { result, token in
-            result + Text(token.value).foregroundColor(token.color)
+        var highlighted = AttributedString(source)
+        var offset = 0
+        for token in SyntaxToken.tokenize(source) {
+            let lowerBound = highlighted.characters.index(
+                highlighted.startIndex,
+                offsetBy: offset
+            )
+            offset += token.value.count
+            let upperBound = highlighted.characters.index(
+                highlighted.startIndex,
+                offsetBy: offset
+            )
+            highlighted[lowerBound..<upperBound].foregroundColor = token.color
         }
         values[source] = highlighted
         insertionOrder.append(source)

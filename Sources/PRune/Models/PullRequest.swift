@@ -215,6 +215,27 @@ struct PullRequestSplitDiffRow: Identifiable, Hashable, Sendable {
     let id: String
     let left: PullRequestDiffLine?
     let right: PullRequestDiffLine?
+    let intralineHighlights: IntralineDiffHighlights
+
+    init(
+        id: String,
+        left: PullRequestDiffLine?,
+        right: PullRequestDiffLine?
+    ) {
+        self.id = id
+        self.left = left
+        self.right = right
+        if let left, let right,
+           case .deletion = left.kind,
+           case .addition = right.kind {
+            intralineHighlights = IntralineDiff.highlights(
+                from: left.content,
+                to: right.content
+            )
+        } else {
+            intralineHighlights = .empty
+        }
+    }
 }
 
 struct PullRequestDiffFile: Identifiable, Hashable, Sendable {
