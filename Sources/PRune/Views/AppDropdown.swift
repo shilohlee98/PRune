@@ -58,14 +58,20 @@ struct AppDropdownRow<Content: View>: View {
                 RoundedRectangle(cornerRadius: 8)
                     .fill(
                         Color.white.opacity(
-                            isSelected ? 0.085 : (isEnabled && isHovered ? 0.065 : 0)
+                            isEnabled && isHovered ? (isSelected ? 0.14 : 0.10)
+                                : (isSelected ? 0.085 : 0)
                         )
                     )
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.white.opacity(isEnabled && isHovered ? 0.13 : 0), lineWidth: 0.8)
             }
         }
         .buttonStyle(.plain)
         .disabled(!isEnabled)
         .onHover { isHovered = isEnabled && $0 }
+        .animation(.easeOut(duration: 0.12), value: isHovered)
     }
 }
 

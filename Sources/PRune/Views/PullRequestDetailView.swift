@@ -44,6 +44,7 @@ struct PullRequestDetailView: View {
     @State private var commitsExpanded = true
     @State private var checksExpanded = true
     @State private var activityExpanded = true
+    @State private var hoveredCommitOID: String?
     @State private var codeNavigationTarget: CodeNavigationTarget?
     @State private var detailWindowNumber: Int?
     @State private var isFindPresented = false
@@ -506,10 +507,7 @@ struct PullRequestDetailView: View {
                         Text("None")
                     } else {
                         ForEach(pullRequest.reviewers.prefix(6), id: \.self) { reviewer in
-                            AvatarView(
-                                label: reviewer,
-                                imageURL: avatarURL(for: reviewer, size: 42)
-                            )
+                            ReviewerAvatar(login: reviewer)
                         }
                     }
                 }
@@ -647,9 +645,21 @@ struct PullRequestDetailView: View {
             }
             .padding(.horizontal, 11)
             .frame(minHeight: 48)
+            .background {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.white.opacity(hoveredCommitOID == commit.oid ? 0.07 : 0))
+            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .onHover { isHovering in
+            if isHovering {
+                hoveredCommitOID = commit.oid
+            } else if hoveredCommitOID == commit.oid {
+                hoveredCommitOID = nil
+            }
+        }
+        .animation(.easeOut(duration: 0.12), value: hoveredCommitOID == commit.oid)
         .id("summary-commit-\(commit.oid)")
     }
 
@@ -818,6 +828,46 @@ private struct FloatingFindPanel: View {
     }
 }
 
+private struct ReviewerAvatar: View {
+    let login: String
+    @State private var isHovered = false
+
+    var body: some View {
+        AvatarView(
+            label: login,
+            imageURL: GitHubAvatarURL.forLogin(login, size: 42),
+            showsHelp: false
+        )
+        .overlay {
+            Circle()
+                .stroke(Color.white.opacity(isHovered ? 0.65 : 0), lineWidth: 1)
+        }
+        .overlay(alignment: .top) {
+            if isHovered {
+                Text(login)
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(Color.primary)
+                    .lineLimit(1)
+                    .fixedSize()
+                    .padding(.horizontal, 9)
+                    .frame(height: 25)
+                    .background(Color.elevatedBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(Color.white.opacity(0.16), lineWidth: 0.8)
+                    }
+                    .shadow(color: .black.opacity(0.35), radius: 8, y: 3)
+                    .offset(y: -34)
+                    .allowsHitTesting(false)
+            }
+        }
+        .onHover { isHovered = $0 }
+        .animation(.easeOut(duration: 0.12), value: isHovered)
+        .zIndex(isHovered ? 1 : 0)
+    }
+}
+
 private struct PullRequestStatusControl: View {
     @Environment(PullRequestStore.self) private var store
     let pullRequest: PullRequest
@@ -825,6 +875,7 @@ private struct PullRequestStatusControl: View {
 
     @State private var pendingChange: PullRequestStatusChange?
     @State private var isStatusMenuPresented = false
+    @State private var isStatusMenuHovered = false
 
     private var canEdit: Bool {
         pullRequest.scopes.contains(.authored)
@@ -851,13 +902,18 @@ private struct PullRequestStatusControl: View {
                 .padding(.leading, 10)
                 .padding(.trailing, 8)
                 .frame(height: 27)
-                .background(Color.white.opacity(0.08))
+                .background(Color.white.opacity(
+                    isStatusMenuHovered && !store.isPerformingMutation ? 0.14 : 0.08
+                ))
                 .clipShape(Capsule())
                 .overlay {
                     Capsule()
-                        .stroke(Color.white.opacity(0.07), lineWidth: 0.7)
+                        .stroke(Color.white.opacity(
+                            isStatusMenuHovered && !store.isPerformingMutation ? 0.18 : 0.07
+                        ), lineWidth: 0.7)
                 }
                 .contentShape(Capsule())
+                .animation(.easeOut(duration: 0.12), value: isStatusMenuHovered)
             } menuContent: {
                 VStack(spacing: 2) {
                     if pullRequest.status == .closed {
@@ -899,6 +955,7 @@ private struct PullRequestStatusControl: View {
                 }
             }
             .fixedSize()
+            .onHover { isStatusMenuHovered = $0 }
             .disabled(store.isPerformingMutation)
             .alert(item: $pendingChange) { change in
                 confirmationAlert(for: change)

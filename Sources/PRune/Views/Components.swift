@@ -20,11 +20,21 @@ enum AppButtonEmphasis {
 }
 
 struct AppButtonStyle: ButtonStyle {
-    @Environment(\.isEnabled) private var isEnabled
-
     let emphasis: AppButtonEmphasis
 
     func makeBody(configuration: Configuration) -> some View {
+        AppButtonStyleBody(configuration: configuration, emphasis: emphasis)
+    }
+}
+
+private struct AppButtonStyleBody: View {
+    @Environment(\.isEnabled) private var isEnabled
+    @State private var isHovered = false
+
+    let configuration: AppButtonStyle.Configuration
+    let emphasis: AppButtonEmphasis
+
+    var body: some View {
         configuration.label
             .font(.system(size: 10.5, weight: .semibold))
             .foregroundStyle(foregroundColor)
@@ -37,12 +47,14 @@ struct AppButtonStyle: ButtonStyle {
             .clipShape(RoundedRectangle(cornerRadius: 7))
             .overlay(
                 RoundedRectangle(cornerRadius: 7)
-                    .stroke(borderColor, lineWidth: emphasis == .secondary ? 0 : 1)
+                    .stroke(borderColor, lineWidth: 1)
             )
             .contentShape(RoundedRectangle(cornerRadius: 7))
             .opacity(isEnabled ? 1 : 0.38)
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
             .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
+            .animation(.easeOut(duration: 0.12), value: isHovered)
+            .onHover { isHovered = $0 }
     }
 
     private var foregroundColor: Color {
@@ -74,35 +86,35 @@ struct AppButtonStyle: ButtonStyle {
     private func backgroundColor(isPressed: Bool) -> Color {
         switch emphasis {
         case .primary:
-            Color.white.opacity(isPressed ? 0.70 : 0.82)
+            Color.white.opacity(isPressed ? 0.70 : (isHovered && isEnabled ? 0.94 : 0.82))
         case .positive:
             Color(red: 0.16, green: 0.58, blue: 0.29)
-                .opacity(isPressed ? 0.78 : 0.96)
+                .opacity(isPressed ? 0.78 : (isHovered && isEnabled ? 1 : 0.96))
         case .outlined:
-            Color.white.opacity(isPressed ? 0.11 : 0.045)
+            Color.white.opacity(isPressed ? 0.11 : (isHovered && isEnabled ? 0.10 : 0.045))
         case .secondary:
-            Color.clear
+            Color.white.opacity(isPressed ? 0.11 : (isHovered && isEnabled ? 0.075 : 0))
         case .subtle:
-            Color.white.opacity(isPressed ? 0.09 : 0.055)
+            Color.white.opacity(isPressed ? 0.09 : (isHovered && isEnabled ? 0.11 : 0.055))
         case .icon:
-            Color.white.opacity(isPressed ? 0.08 : 0.025)
+            Color.white.opacity(isPressed ? 0.08 : (isHovered && isEnabled ? 0.10 : 0.025))
         }
     }
 
     private var borderColor: Color {
         switch emphasis {
         case .primary:
-            Color.white.opacity(0.28)
+            Color.white.opacity(isHovered && isEnabled ? 0.4 : 0.28)
         case .positive:
-            Color.green.opacity(0.58)
+            Color.green.opacity(isHovered && isEnabled ? 0.74 : 0.58)
         case .outlined:
-            Color.white.opacity(0.22)
+            Color.white.opacity(isHovered && isEnabled ? 0.34 : 0.22)
         case .secondary:
-            Color.clear
+            Color.white.opacity(isHovered && isEnabled ? 0.08 : 0)
         case .subtle:
-            Color.white.opacity(0.10)
+            Color.white.opacity(isHovered && isEnabled ? 0.18 : 0.10)
         case .icon:
-            Color.white.opacity(0.07)
+            Color.white.opacity(isHovered && isEnabled ? 0.18 : 0.07)
         }
     }
 }
@@ -209,13 +221,23 @@ struct AvatarView: View {
     let label: String
     var size: CGFloat = 21
     var imageURL: URL? = nil
+    var showsHelp = true
 
     private var initials: String {
         let parts = label.split(whereSeparator: { $0 == "-" || $0 == "_" || $0 == " " })
         return parts.prefix(2).compactMap(\.first).map(String.init).joined().uppercased()
     }
 
+    @ViewBuilder
     var body: some View {
+        if showsHelp {
+            avatar.help(label)
+        } else {
+            avatar
+        }
+    }
+
+    private var avatar: some View {
         ZStack {
             Circle()
                 .fill(
@@ -244,7 +266,6 @@ struct AvatarView: View {
         .overlay(Circle().stroke(.white.opacity(0.22), lineWidth: 0.5))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(label)
-        .help(label)
     }
 }
 
@@ -261,15 +282,22 @@ struct PaneSectionHeader: View {
     var count: Int? = nil
     var isExpanded = true
     var onToggle: (() -> Void)? = nil
+    @State private var isHovered = false
 
     @ViewBuilder
     var body: some View {
         if let onToggle {
             Button(action: onToggle) {
                 label
+                    .background {
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Color.white.opacity(isHovered ? 0.065 : 0))
+                    }
+                    .contentShape(RoundedRectangle(cornerRadius: 6))
             }
             .buttonStyle(.plain)
-            .contentShape(Rectangle())
+            .onHover { isHovered = $0 }
+            .animation(.easeOut(duration: 0.12), value: isHovered)
             .help(isExpanded ? "Collapse \(title)" : "Expand \(title)")
         } else {
             label
@@ -291,6 +319,6 @@ struct PaneSectionHeader: View {
                 .rotationEffect(.degrees(isExpanded ? 0 : -90))
             Spacer()
         }
-        .frame(minHeight: 24)
+        .frame(maxWidth: .infinity, minHeight: 24)
     }
 }

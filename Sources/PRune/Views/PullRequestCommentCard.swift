@@ -15,6 +15,7 @@ struct PullRequestCommentCard: View {
     @State private var isExpanded: Bool
     @State private var isHidden = false
     @State private var isCommentMenuPresented = false
+    @State private var isCommentMenuHovered = false
 
     init(
         pullRequest: PullRequest,
@@ -211,8 +212,11 @@ struct PullRequestCommentCard: View {
         ) {
             Image(systemName: "ellipsis")
                 .font(.system(size: 11, weight: .semibold))
-                .frame(width: 28, height: 24)
-                .contentShape(Rectangle())
+                .frame(width: 28, height: 28)
+                .appToolbarSurface(
+                    isHovered: isCommentMenuHovered,
+                    isEnabled: !store.isShowingPreviewData && !store.isPerformingMutation
+                )
         } menuContent: {
             VStack(spacing: 2) {
                 if let webURL = comment.webURL {
@@ -292,6 +296,7 @@ struct PullRequestCommentCard: View {
             }
         }
         .fixedSize()
+        .onHover { isCommentMenuHovered = $0 }
         .help("Comment actions")
         .disabled(store.isShowingPreviewData || store.isPerformingMutation)
     }

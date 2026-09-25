@@ -3,6 +3,7 @@ import SwiftUI
 struct PullRequestListView: View {
     @Environment(PullRequestStore.self) private var store
     @State private var isFilterPresented = false
+    @State private var isFilterHovered = false
 
     var body: some View {
         @Bindable var store = store
@@ -77,8 +78,24 @@ struct PullRequestListView: View {
             ) {
                 Image(systemName: "line.3.horizontal.decrease")
                     .frame(width: 30, height: 30)
-                    .background(Color.elevatedBackground)
-                    .clipShape(Circle())
+                    .background {
+                        Circle()
+                            .fill(Color.elevatedBackground)
+                            .overlay {
+                                Circle().fill(Color.white.opacity(
+                                    isFilterHovered && !store.isLoading && !store.isLoadingMore
+                                        ? 0.10 : 0
+                                ))
+                            }
+                    }
+                    .overlay {
+                        Circle().stroke(Color.white.opacity(
+                            isFilterHovered && !store.isLoading && !store.isLoadingMore
+                                ? 0.16 : 0
+                        ), lineWidth: 0.8)
+                    }
+                    .contentShape(Circle())
+                    .animation(.easeOut(duration: 0.12), value: isFilterHovered)
             } menuContent: {
                 VStack(spacing: 2) {
                     Text("PULL REQUEST STATUS")
@@ -133,6 +150,7 @@ struct PullRequestListView: View {
                 }
             }
             .fixedSize()
+            .onHover { isFilterHovered = $0 }
             .disabled(store.isLoading || store.isLoadingMore)
         }
     }
@@ -199,6 +217,7 @@ private struct RepositoryGroupView: View {
     @Environment(PullRequestStore.self) private var store
     let repository: String
     let items: [PullRequest]
+    @State private var isHovered = false
 
     private var isExpanded: Bool {
         store.expandedRepositories.contains(repository)
@@ -229,10 +248,16 @@ private struct RepositoryGroupView: View {
                     Spacer()
                 }
                 .padding(.leading, 2)
-                .contentShape(Rectangle())
+                .frame(height: 29)
+                .background {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.white.opacity(isHovered ? 0.065 : 0))
+                }
+                .contentShape(RoundedRectangle(cornerRadius: 8))
             }
             .buttonStyle(.plain)
-            .frame(height: 29)
+            .onHover { isHovered = $0 }
+            .animation(.easeOut(duration: 0.12), value: isHovered)
 
             if isExpanded {
                 ForEach(items) { pullRequest in
@@ -252,6 +277,7 @@ private struct PullRequestRow: View {
     let pullRequest: PullRequest
     let isSelected: Bool
     let action: () -> Void
+    @State private var isHovered = false
 
     var body: some View {
         Button(action: action) {
@@ -290,10 +316,19 @@ private struct PullRequestRow: View {
             }
             .padding(.horizontal, 8)
             .frame(minHeight: 52)
-            .background(isSelected ? Color.selectedBackground : .clear)
+            .background {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(isSelected ? Color.selectedBackground : .clear)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(Color.white.opacity(isHovered ? (isSelected ? 0.04 : 0.065) : 0))
+                    }
+            }
             .clipShape(RoundedRectangle(cornerRadius: 10))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .animation(.easeOut(duration: 0.12), value: isHovered)
     }
 }

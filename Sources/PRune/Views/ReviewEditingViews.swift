@@ -1583,6 +1583,7 @@ private struct InlineReviewCommentView: View {
     @State private var isPostingReply = false
     @State private var isUpdatingResolution = false
     @State private var isCommentMenuPresented = false
+    @State private var isCommentMenuHovered = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -1738,8 +1739,11 @@ private struct InlineReviewCommentView: View {
             Image(systemName: "ellipsis")
                 .font(.system(size: 10.5, weight: .semibold))
                 .foregroundStyle(Color.mutedText)
-                .frame(width: 24, height: 20)
-                .contentShape(Rectangle())
+                .frame(width: 28, height: 28)
+                .appToolbarSurface(
+                    isHovered: isCommentMenuHovered,
+                    isEnabled: !isInteractionDisabled
+                )
         } menuContent: {
             VStack(spacing: 2) {
                 if let webURL = comment.webURL {
@@ -1783,6 +1787,7 @@ private struct InlineReviewCommentView: View {
             }
         }
         .fixedSize()
+        .onHover { isCommentMenuHovered = $0 }
         .help("Comment actions")
         .disabled(isInteractionDisabled)
     }

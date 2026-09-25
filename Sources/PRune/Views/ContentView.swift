@@ -534,12 +534,17 @@ private struct MergeActionRow: View {
             .contentShape(Rectangle())
             .background(
                 RoundedRectangle(cornerRadius: 7)
-                    .fill(Color.white.opacity(isEnabled && isHovered ? 0.075 : 0))
+                    .fill(Color.white.opacity(isEnabled && isHovered ? 0.10 : 0))
             )
+            .overlay {
+                RoundedRectangle(cornerRadius: 7)
+                    .stroke(Color.white.opacity(isEnabled && isHovered ? 0.13 : 0), lineWidth: 0.8)
+            }
         }
         .buttonStyle(.plain)
         .disabled(!isEnabled)
         .onHover { isHovered = isEnabled && $0 }
+        .animation(.easeOut(duration: 0.12), value: isHovered)
     }
 }
 
