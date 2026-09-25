@@ -5,7 +5,9 @@ struct ContentView: View {
     @State private var detailTab = DetailTab.summary
     @State private var reviewTarget: PullRequest?
     @State private var pendingMergeAction: PendingMergeAction?
+    @State private var isReviewButtonHovered = false
     @State private var isMergeButtonHovered = false
+    @State private var isRefreshButtonHovered = false
     @State private var isMergePopoverPresented = false
     @State private var isAccountPopoverPresented = false
 
@@ -117,13 +119,18 @@ struct ContentView: View {
                             .font(.system(size: 10, weight: .semibold))
                         Text("Submit review")
                     }
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Color.primary)
+                    .padding(.horizontal, 10)
+                    .frame(height: 28)
+                    .appToolbarSurface(
+                        isHovered: isReviewButtonHovered,
+                        isEnabled: !reviewButtonDisabled(for: pullRequest)
+                    )
                 }
-                .buttonStyle(.appOutlined)
-                .disabled(
-                    store.isShowingPreviewData
-                        || store.isPerformingMutation
-                        || pullRequest.headRefOID.isEmpty
-                )
+                .buttonStyle(.plain)
+                .disabled(reviewButtonDisabled(for: pullRequest))
+                .onHover { isReviewButtonHovered = $0 }
                 .help(reviewButtonHelp(for: pullRequest))
                 .padding(.trailing, 8)
 
@@ -143,6 +150,12 @@ struct ContentView: View {
         }
     }
 
+    private func reviewButtonDisabled(for pullRequest: PullRequest) -> Bool {
+        store.isShowingPreviewData
+            || store.isPerformingMutation
+            || pullRequest.headRefOID.isEmpty
+    }
+
     private func reviewButtonHelp(for pullRequest: PullRequest) -> String {
         if store.isShowingPreviewData {
             return "Review actions are unavailable while preview data is shown"
@@ -157,56 +170,19 @@ struct ContentView: View {
         let isBlocked = pullRequest.mergeBlockReason != nil
         let isDisabled = mergeMenuDisabled(for: pullRequest)
 
-        return Button {
-            isMergePopoverPresented.toggle()
-        } label: {
+        return AppDropdown(isPresented: $isMergePopoverPresented, width: 260) {
             MergeMenuLabel(
                 autoMergeEnabled: pullRequest.autoMergeEnabled,
                 isBlocked: isBlocked
             )
+            .appToolbarSurface(
+                isHovered: isMergeButtonHovered,
+                isEnabled: !isDisabled
+            )
+        } menuContent: {
+            mergeActionsPopover(for: pullRequest)
         }
-        .buttonStyle(.plain)
         .fixedSize()
-        .background {
-            if isBlocked {
-                Color.white.opacity(isMergeButtonHovered && !isDisabled ? 0.14 : 0.09)
-            } else {
-                LinearGradient(
-                    colors: [
-                        Color(red: 0.20, green: 0.67, blue: 0.35),
-                        Color(red: 0.12, green: 0.48, blue: 0.24),
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .opacity(isDisabled ? 0.38 : (isMergeButtonHovered ? 1 : 0.92))
-            }
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 7))
-        .overlay {
-            RoundedRectangle(cornerRadius: 7)
-                .stroke(
-                    isBlocked
-                        ? Color.white.opacity(isMergeButtonHovered && !isDisabled ? 0.23 : 0.14)
-                        : Color(red: 0.36, green: 0.88, blue: 0.49)
-                            .opacity(isDisabled ? 0.28 : (isMergeButtonHovered ? 1 : 0.78)),
-                    lineWidth: 1
-                )
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 6)
-                .inset(by: 1)
-                .stroke(Color.white.opacity(isMergeButtonHovered ? 0.18 : 0.10), lineWidth: 0.5)
-        }
-        .shadow(
-            color: Color.green.opacity(
-                isBlocked || isDisabled ? 0 : (isMergeButtonHovered ? 0.24 : 0.12)
-            ),
-            radius: isMergeButtonHovered ? 5 : 2,
-            y: 1
-        )
-        .scaleEffect(isMergeButtonHovered && !isDisabled && !isBlocked ? 1.015 : 1)
-        .animation(.easeOut(duration: 0.12), value: isMergeButtonHovered)
         .disabled(isDisabled)
         .onHover { isMergeButtonHovered = $0 }
         .overlay(alignment: .bottomTrailing) {
@@ -233,9 +209,6 @@ struct ContentView: View {
             }
         }
         .help(mergeButtonHelp(for: pullRequest))
-        .popover(isPresented: $isMergePopoverPresented, arrowEdge: .top) {
-            mergeActionsPopover(for: pullRequest)
-        }
     }
 
     private func mergeActionsPopover(for pullRequest: PullRequest) -> some View {
@@ -296,9 +269,6 @@ struct ContentView: View {
                 }
             }
         }
-        .padding(6)
-        .frame(width: 250)
-        .background(Color.elevatedBackground)
     }
 
     private func selectMergeAction(
@@ -391,10 +361,14 @@ struct ContentView: View {
                         .foregroundStyle(Color.mutedText)
                 }
             }
-            .frame(width: 26, height: 26)
-            .contentShape(Rectangle())
+            .frame(width: 28, height: 28)
+            .appToolbarSurface(
+                isHovered: isRefreshButtonHovered,
+                isEnabled: !store.isLoading
+            )
         }
-        .buttonStyle(.appIcon)
+        .buttonStyle(.plain)
+        .onHover { isRefreshButtonHovered = $0 }
         .help("Refresh pull requests (⌘R)")
         .disabled(store.isLoading)
     }
@@ -417,10 +391,6 @@ struct ContentView: View {
 
     private var titleBarDetailTabs: some View {
         HStack(spacing: 4) {
-            Image(systemName: "arrow.triangle.pull")
-                .font(.system(size: 10))
-                .foregroundStyle(Color.mutedText)
-
             ForEach(DetailTab.allCases) { item in
                 TitleBarTab(title: item.rawValue, isSelected: detailTab == item, isEnabled: true) {
                     detailTab = item
@@ -506,26 +476,20 @@ private struct MergeMenuLabel: View {
     let isBlocked: Bool
 
     var body: some View {
-        HStack(spacing: 0) {
-            HStack(spacing: 7) {
-                Image(systemName: autoMergeEnabled ? "clock.badge.checkmark" : "arrow.triangle.merge")
-                    .font(.system(size: 11, weight: .bold))
-                Text(autoMergeEnabled ? "Auto-merge" : "Merge")
-                    .font(.system(size: 11, weight: .bold))
-            }
-            .padding(.leading, 12)
-            .padding(.trailing, 10)
-
-            Rectangle()
-                .fill(Color.black.opacity(0.22))
-                .frame(width: 1, height: 18)
-
+        HStack(spacing: 7) {
+            Image(systemName: autoMergeEnabled ? "clock.badge.checkmark" : "arrow.triangle.merge")
+                .font(.system(size: 11, weight: .semibold))
+                .frame(width: 14)
+            Text(autoMergeEnabled ? "Auto-merge" : "Merge")
+                .font(.system(size: 11, weight: .semibold))
+            Spacer(minLength: 8)
             Image(systemName: "chevron.down")
-                .font(.system(size: 8, weight: .heavy))
-                .frame(width: 28)
+                .font(.system(size: 8, weight: .semibold))
+                .foregroundStyle(Color.mutedText)
         }
-        .foregroundStyle(Color.white.opacity(isBlocked ? 0.56 : 0.97))
-        .frame(height: 30)
+        .foregroundStyle(Color.primary.opacity(isBlocked ? 0.7 : 1))
+        .padding(.horizontal, 10)
+        .frame(minWidth: 98, minHeight: 28)
     }
 }
 

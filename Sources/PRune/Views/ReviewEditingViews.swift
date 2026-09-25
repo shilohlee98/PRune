@@ -199,10 +199,11 @@ struct CodeReviewSection: View {
     @State private var inlineTarget: InlineCommentTarget?
     @State private var replyingCommentID: String?
     @State private var expandedResolvedCommentIDs: Set<String> = []
-    @State private var diffLayout = DiffLayout.split
+    @State private var diffLayout = DiffLayout.unified
     @State private var collapsedFilePaths: Set<String> = []
     @State private var committedViewportWidth: CGFloat = 460
     @State private var isCommitMenuPresented = false
+    @State private var isCommitSelectorHovered = false
 
     private var selectedCommit: PullRequestCommit? {
         pullRequest.commits.first { $0.oid == selectedCommitOID }
@@ -527,9 +528,9 @@ struct CodeReviewSection: View {
             diffFileHeader(file)
                 .padding(.horizontal, 4)
                 .padding(.vertical, 2)
+                .background(Color.panelBackground)
         case let .hunkHeader(hunk):
             diffHunkHeader(hunk)
-                .padding(.horizontal, 4)
                 .overlay(alignment: .leading) {
                     if findTargetID == row.id {
                         Rectangle().fill(Color.blue).frame(width: 3)
@@ -753,8 +754,7 @@ struct CodeReviewSection: View {
             }
             .padding(.horizontal, 8)
             .frame(maxWidth: .infinity, minHeight: 28)
-            .background(Color.elevatedBackground.opacity(0.34))
-            .contentShape(Rectangle())
+            .appToolbarSurface(isHovered: isCommitSelectorHovered)
         } menuContent: {
             VStack(spacing: 4) {
                 AppDropdownRow(isSelected: selectedCommitOID == nil) {
@@ -795,26 +795,29 @@ struct CodeReviewSection: View {
                 .frame(height: min(CGFloat(pullRequest.commits.count) * 36, 252))
             }
         }
-        .frame(minWidth: 120, idealWidth: 220, maxWidth: 260)
+        .frame(minWidth: 120, idealWidth: 170, maxWidth: 190)
+        .onHover { isCommitSelectorHovered = $0 }
+        .animation(.easeOut(duration: 0.12), value: isCommitSelectorHovered)
     }
 
     private func diffFileHeader(_ file: PullRequestDiffFile) -> some View {
         let isCollapsed = collapsedFilePaths.contains(file.path)
 
-        return HStack(spacing: 6) {
+        return HStack(spacing: 8) {
             Button {
                 withAnimation(.easeOut(duration: 0.14)) {
                     toggleFile(file.path)
                 }
             } label: {
-                HStack(spacing: 6) {
+                HStack(spacing: 8) {
                     Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
                         .font(.system(size: 9, weight: .semibold))
-                        .frame(width: 12)
-                    Image(systemName: "doc.text")
                         .foregroundStyle(Color.mutedText)
+                        .frame(width: 12)
+                    DiffFileTypeBadge(path: file.path)
                     Text(FindHighlight.apply(searchQuery, to: AttributedString(file.path)))
-                        .font(.system(size: 10, design: .monospaced))
+                        .font(.system(size: 10.5, design: .monospaced))
+                        .foregroundStyle(Color.secondaryText)
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .layoutPriority(-1)
@@ -822,11 +825,7 @@ struct CodeReviewSection: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-
-            CopyPathButton(path: file.path)
-                .fixedSize()
-
-            Spacer(minLength: 8)
+            .layoutPriority(-1)
 
             HStack(spacing: 6) {
                 Text("+\(file.additions)")
@@ -836,24 +835,44 @@ struct CodeReviewSection: View {
             }
             .fixedSize()
 
+            Spacer(minLength: 2)
+
+            CopyPathButton(path: file.path)
+                .fixedSize()
         }
         .font(.system(size: 9.5, design: .monospaced))
-        .padding(.horizontal, 8)
+        .padding(.horizontal, 10)
         .frame(maxWidth: .infinity, minHeight: 30)
         .background(findTargetID == CodeNavigationTarget.fileAnchor(for: file.path)
-            ? Color.blue.opacity(0.25) : Color.elevatedBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 4))
-        .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.subtleBorder))
+            ? Color.blue.opacity(0.16) : Color.panelBackground)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(Color.subtleBorder).frame(height: 1)
+        }
     }
 
     private func diffHunkHeader(_ hunk: PullRequestDiffHunk) -> some View {
-        Text(FindHighlight.apply(searchQuery, to: AttributedString(hunk.header)))
-            .font(.system(size: 10, design: .monospaced))
-            .foregroundStyle(Color(red: 0.58, green: 0.72, blue: 0.88))
-            .lineLimit(1)
-            .padding(.horizontal, 10)
-            .frame(maxWidth: .infinity, minHeight: 26, alignment: .leading)
-            .background(Color(red: 0.12, green: 0.20, blue: 0.29).opacity(0.72))
+        HStack(spacing: 0) {
+            VStack(spacing: 0) {
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 10, weight: .semibold))
+                Text("···")
+                    .font(.system(size: 9, weight: .bold))
+                    .offset(y: -3)
+            }
+            .foregroundStyle(Color.white.opacity(0.60))
+            .frame(width: 44, height: 26)
+            .background(Color(red: 0.09, green: 0.19, blue: 0.35))
+            .accessibilityHidden(true)
+
+            Text(FindHighlight.apply(searchQuery, to: AttributedString(hunk.header)))
+                .font(.system(size: 10.5, design: .monospaced))
+                .foregroundStyle(Color.white.opacity(0.62))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, 24)
+        }
+        .frame(maxWidth: .infinity, minHeight: 26)
+        .background(Color(red: 0.09, green: 0.14, blue: 0.21))
     }
 
     private func unifiedLineHeight(
@@ -862,7 +881,7 @@ struct CodeReviewSection: View {
     ) -> CGFloat {
         wrappedCodeHeight(
             line.content,
-            availableWidth: viewportWidth - 94
+            availableWidth: viewportWidth - 86
         )
     }
 
@@ -1141,14 +1160,11 @@ private struct UnifiedDiffLineRow: View {
     var body: some View {
         ZStack(alignment: .topLeading) {
             HStack(alignment: .top, spacing: 0) {
-                Text(line.oldLine.map(String.init) ?? "")
-                    .frame(width: 34, height: 24, alignment: .trailing)
-                    .foregroundStyle(Color.white.opacity(0.30))
-                Text(line.newLine.map(String.init) ?? "")
-                    .frame(width: 34, height: 24, alignment: .trailing)
-                    .foregroundStyle(Color.white.opacity(0.30))
+                Text((line.newLine ?? line.oldLine).map(String.init) ?? "")
+                    .frame(width: 48, height: 24, alignment: .trailing)
+                    .foregroundStyle(DiffVisualStyle.lineNumberColor(for: line.kind))
                 Text(DiffVisualStyle.marker(for: line.kind))
-                    .frame(width: 22, height: 24, alignment: .center)
+                    .frame(width: 20, height: 24, alignment: .center)
                     .foregroundStyle(DiffVisualStyle.markerColor(for: line.kind))
                 SyntaxHighlightedCode(
                     source: line.content.isEmpty ? " " : line.content,
@@ -1202,7 +1218,7 @@ private struct SplitDiffLineCell: View {
             HStack(alignment: .top, spacing: 0) {
                 Text(String(lineNumber))
                     .frame(width: 34, height: 24, alignment: .trailing)
-                    .foregroundStyle(Color.white.opacity(0.30))
+                    .foregroundStyle(DiffVisualStyle.lineNumberColor(for: line.kind))
                 Text(DiffVisualStyle.splitMarker(for: line.kind, side: side))
                     .frame(width: 22, height: 24, alignment: .center)
                     .foregroundStyle(DiffVisualStyle.markerColor(for: line.kind))
@@ -1243,6 +1259,14 @@ private struct SplitDiffLineCell: View {
 }
 
 private enum DiffVisualStyle {
+    static func lineNumberColor(for kind: DiffLineKind) -> Color {
+        switch kind {
+        case .context: Color.white.opacity(0.42)
+        case .addition: Color(red: 0.51, green: 0.85, blue: 0.57)
+        case .deletion: Color(red: 0.96, green: 0.56, blue: 0.56)
+        }
+    }
+
     static func marker(for kind: DiffLineKind) -> String {
         switch kind {
         case .context: " "
@@ -1277,9 +1301,9 @@ private enum DiffVisualStyle {
 
     static func background(for kind: DiffLineKind) -> Color {
         switch kind {
-        case .context: .clear
-        case .addition: Color(red: 0.12, green: 0.25, blue: 0.16).opacity(0.88)
-        case .deletion: Color(red: 0.28, green: 0.12, blue: 0.14).opacity(0.84)
+        case .context: Color.white.opacity(0.02)
+        case .addition: Color(red: 0.15, green: 0.23, blue: 0.18)
+        case .deletion: Color(red: 0.25, green: 0.16, blue: 0.17)
         }
     }
 
@@ -1288,9 +1312,9 @@ private enum DiffVisualStyle {
         case .context:
             .clear
         case .addition:
-            Color(red: 0.20, green: 0.48, blue: 0.27).opacity(0.96)
+            Color(red: 0.22, green: 0.37, blue: 0.27)
         case .deletion:
-            Color(red: 0.56, green: 0.22, blue: 0.25).opacity(0.94)
+            Color(red: 0.40, green: 0.24, blue: 0.26)
         }
     }
 }
@@ -1302,17 +1326,60 @@ private struct DiffToolbarActionButton: View {
     let isDisabled: Bool
     let action: () -> Void
 
+    @State private var isHovered = false
+
     var body: some View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(Color.secondaryText)
-                .frame(width: 16, height: 16)
+                .frame(width: 28, height: 28)
+                .appToolbarSurface(isHovered: isHovered, isEnabled: !isDisabled)
         }
-        .buttonStyle(.appIcon)
+        .buttonStyle(.plain)
         .disabled(isDisabled)
+        .onHover { isHovered = $0 }
         .help(help)
         .accessibilityLabel(accessibilityLabel)
+    }
+}
+
+private struct DiffFileTypeBadge: View {
+    let path: String
+
+    private var fileExtension: String {
+        URL(fileURLWithPath: path).pathExtension.lowercased()
+    }
+
+    private var tint: Color {
+        switch fileExtension {
+        case "ts", "tsx": Color(red: 0.40, green: 0.68, blue: 0.96)
+        case "swift": Color(red: 0.98, green: 0.59, blue: 0.36)
+        case "go": Color(red: 0.39, green: 0.80, blue: 0.85)
+        case "md", "mdx": Color(red: 0.64, green: 0.68, blue: 0.95)
+        case "json", "jsonc": Color(red: 0.92, green: 0.72, blue: 0.43)
+        default: Color.secondaryText
+        }
+    }
+
+    var body: some View {
+        Group {
+            if fileExtension.isEmpty {
+                Image(systemName: "doc.text")
+                    .font(.system(size: 9))
+            } else {
+                Text(fileExtension.uppercased())
+                    .font(.system(size: 8, weight: .bold, design: .monospaced))
+                    .lineLimit(1)
+            }
+        }
+        .foregroundStyle(tint)
+        .padding(.horizontal, 5)
+        .frame(minWidth: 23)
+        .frame(height: 18)
+        .background(tint.opacity(0.15), in: RoundedRectangle(cornerRadius: 5))
+        .fixedSize(horizontal: true, vertical: false)
+        .accessibilityHidden(true)
     }
 }
 
@@ -1320,6 +1387,7 @@ private struct CopyPathButton: View {
     let path: String
 
     @State private var isCopied = false
+    @State private var isHovered = false
 
     var body: some View {
         Button {
@@ -1334,11 +1402,18 @@ private struct CopyPathButton: View {
             Image(systemName: isCopied ? "checkmark" : "doc.on.doc")
                 .font(.system(size: 9.5, weight: .semibold))
                 .foregroundStyle(isCopied ? Color.green : Color.mutedText)
-                .frame(width: 14, height: 14)
+                .frame(width: 24, height: 24)
+                .background {
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color.white.opacity(isHovered ? 0.08 : 0))
+                }
+                .contentShape(Rectangle())
         }
-        .buttonStyle(.appIcon)
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
         .help(isCopied ? "Path copied" : "Copy path: \(path)")
-        .animation(.easeOut(duration: 0.12), value: isCopied)
+        .accessibilityLabel(isCopied ? "Path copied" : "Copy path")
+        .animation(.easeOut(duration: 0.12), value: isHovered || isCopied)
     }
 }
 
@@ -1357,20 +1432,8 @@ private struct DiffLayoutToggleButton: View {
             }
         } label: {
             DiffLayoutGlyph(layout: targetLayout)
-                .frame(width: 28, height: 26)
-                .background(
-                    RoundedRectangle(cornerRadius: 7)
-                        .fill(Color.white.opacity(isHovering ? 0.075 : 0.025))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 7)
-                        .stroke(
-                            Color(red: 0.48, green: 0.45, blue: 0.92)
-                                .opacity(isHovering ? 0.90 : 0.62),
-                            lineWidth: 1
-                        )
-                )
-                .contentShape(RoundedRectangle(cornerRadius: 7))
+                .frame(width: 28, height: 28)
+                .appToolbarSurface(isHovered: isHovering)
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }

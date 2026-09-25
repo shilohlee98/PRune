@@ -116,6 +116,35 @@ extension ButtonStyle where Self == AppButtonStyle {
     static var appIcon: AppButtonStyle { AppButtonStyle(emphasis: .icon) }
 }
 
+private struct AppToolbarSurface: ViewModifier {
+    let isHovered: Bool
+    let isEnabled: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .background {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color.white.opacity(isHovered && isEnabled ? 0.08 : 0.035))
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(
+                        Color.white.opacity(isHovered && isEnabled ? 0.16 : 0.065),
+                        lineWidth: 0.8
+                    )
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 6))
+            .opacity(isEnabled ? 1 : 0.42)
+            .animation(.easeOut(duration: 0.12), value: isHovered)
+    }
+}
+
+extension View {
+    func appToolbarSurface(isHovered: Bool, isEnabled: Bool = true) -> some View {
+        modifier(AppToolbarSurface(isHovered: isHovered, isEnabled: isEnabled))
+    }
+}
+
 struct PullRequestGlyph: View {
     let state: CheckState
     var isSelected = false
