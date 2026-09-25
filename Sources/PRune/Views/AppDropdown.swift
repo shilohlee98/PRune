@@ -131,11 +131,15 @@ private struct DropdownPanelPresenter<Content: View>: NSViewRepresentable {
                   let window = anchorView.window
             else { return }
 
+            let visibleFrame = (window.screen ?? NSScreen.main)?.visibleFrame ?? window.frame
+            let windowBounds = window.frame.intersection(visibleFrame)
+            let menuBounds = windowBounds.isEmpty ? window.frame : windowBounds
+            let menuWidth = min(parent.width, max(1, menuBounds.width - 16))
             let rootView = VStack(spacing: 0) {
                 parent.content()
             }
             .padding(6)
-            .frame(width: parent.width)
+            .frame(width: menuWidth)
             .background(Color(red: 0.105, green: 0.108, blue: 0.116))
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .overlay {
@@ -153,7 +157,7 @@ private struct DropdownPanelPresenter<Content: View>: NSViewRepresentable {
 
             let anchorFrameInWindow = anchorView.convert(anchorView.bounds, to: nil)
             anchorScreenFrame = window.convertToScreen(anchorFrameInWindow)
-            position(panel, below: anchorScreenFrame, on: window.screen ?? NSScreen.main)
+            position(panel, below: anchorScreenFrame, inside: menuBounds)
             panel.orderFront(nil)
             installEventMonitorIfNeeded()
         }
@@ -184,23 +188,24 @@ private struct DropdownPanelPresenter<Content: View>: NSViewRepresentable {
             return panel
         }
 
-        private func position(_ panel: NSPanel, below anchor: NSRect, on screen: NSScreen?) {
-            let visibleFrame = screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? .zero
+        private func position(_ panel: NSPanel, below anchor: NSRect, inside bounds: NSRect) {
             let margin: CGFloat = 8
             let gap: CGFloat = 4
             let size = panel.frame.size
+            let minX = bounds.minX + margin
+            let maxX = max(minX, bounds.maxX - size.width - margin)
+            let minY = bounds.minY + margin
+            let maxY = max(minY, bounds.maxY - size.height - margin)
 
             var origin = NSPoint(
                 x: anchor.minX,
                 y: anchor.minY - size.height - gap
             )
-            origin.x = min(
-                max(origin.x, visibleFrame.minX + margin),
-                visibleFrame.maxX - size.width - margin
-            )
-            if origin.y < visibleFrame.minY + margin {
+            origin.x = min(max(origin.x, minX), maxX)
+            if origin.y < minY {
                 origin.y = anchor.maxY + gap
             }
+            origin.y = min(max(origin.y, minY), maxY)
             panel.setFrameOrigin(origin)
         }
 

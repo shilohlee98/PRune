@@ -228,14 +228,6 @@ struct CodeReviewSection: View {
         VStack(spacing: 0) {
             reviewToolbar
 
-            if !pullRequest.commits.isEmpty {
-                commitSelector
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-            }
-
-            Divider().overlay(Color.subtleBorder)
-
             if store.isLoadingDiff(for: pullRequest.id, commitOID: selectedCommitOID)
                 && currentDiffFiles == nil {
                 HStack(spacing: 8) {
@@ -322,6 +314,10 @@ struct CodeReviewSection: View {
             }
 
             Spacer(minLength: 10)
+
+            if !pullRequest.commits.isEmpty {
+                commitSelector
+            }
 
             DiffToolbarActionButton(
                 accessibilityLabel: "Collapse all files",
@@ -765,7 +761,7 @@ struct CodeReviewSection: View {
                 .frame(height: min(CGFloat(pullRequest.commits.count) * 36, 252))
             }
         }
-        .frame(maxWidth: .infinity)
+        .frame(minWidth: 120, idealWidth: 220, maxWidth: 260)
     }
 
     private func diffFileHeader(_ file: PullRequestDiffFile) -> some View {
