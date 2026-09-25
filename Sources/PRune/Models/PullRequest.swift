@@ -26,11 +26,11 @@ enum PullRequestStatus: String, Sendable {
 }
 
 enum PullRequestStatusFilter: String, CaseIterable, Identifiable, Sendable {
-    case all = "All"
     case open = "Open"
     case draft = "Draft"
     case closed = "Closed"
     case merged = "Merged"
+    case all = "All"
 
     var id: String { rawValue }
 

@@ -14,7 +14,7 @@ final class PullRequestStore {
     var selectedID: PullRequest.ID?
     var scope: PullRequestScope = .authored
     var searchText = ""
-    var statusFilter: PullRequestStatusFilter = .all
+    var statusFilter: PullRequestStatusFilter = .open
     var checkFilter: CheckState = .all
     var expandedRepositories: Set<String> = []
     var isLoading = false
