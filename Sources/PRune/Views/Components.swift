@@ -21,9 +21,15 @@ enum AppButtonEmphasis {
 
 struct AppButtonStyle: ButtonStyle {
     let emphasis: AppButtonEmphasis
+    let compact: Bool
+
+    init(emphasis: AppButtonEmphasis, compact: Bool = false) {
+        self.emphasis = emphasis
+        self.compact = compact
+    }
 
     func makeBody(configuration: Configuration) -> some View {
-        AppButtonStyleBody(configuration: configuration, emphasis: emphasis)
+        AppButtonStyleBody(configuration: configuration, emphasis: emphasis, compact: compact)
     }
 }
 
@@ -33,6 +39,7 @@ private struct AppButtonStyleBody: View {
 
     let configuration: AppButtonStyle.Configuration
     let emphasis: AppButtonEmphasis
+    let compact: Bool
 
     var body: some View {
         configuration.label
@@ -41,15 +48,15 @@ private struct AppButtonStyleBody: View {
             .padding(.horizontal, horizontalPadding)
             .frame(
                 minWidth: emphasis == .icon ? 28 : nil,
-                minHeight: emphasis == .outlined ? 30 : 28
+                minHeight: compact ? 24 : (emphasis == .outlined ? 30 : 28)
             )
             .background(backgroundColor(isPressed: configuration.isPressed))
-            .clipShape(RoundedRectangle(cornerRadius: 7))
+            .clipShape(RoundedRectangle(cornerRadius: compact ? 6 : 7))
             .overlay(
-                RoundedRectangle(cornerRadius: 7)
+                RoundedRectangle(cornerRadius: compact ? 6 : 7)
                     .stroke(borderColor, lineWidth: 1)
             )
-            .contentShape(RoundedRectangle(cornerRadius: 7))
+            .contentShape(RoundedRectangle(cornerRadius: compact ? 6 : 7))
             .opacity(isEnabled ? 1 : 0.38)
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
             .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
@@ -124,6 +131,9 @@ extension ButtonStyle where Self == AppButtonStyle {
     static var appPositive: AppButtonStyle { AppButtonStyle(emphasis: .positive) }
     static var appOutlined: AppButtonStyle { AppButtonStyle(emphasis: .outlined) }
     static var appSecondary: AppButtonStyle { AppButtonStyle(emphasis: .secondary) }
+    static var appSecondaryCompact: AppButtonStyle {
+        AppButtonStyle(emphasis: .secondary, compact: true)
+    }
     static var appSubtle: AppButtonStyle { AppButtonStyle(emphasis: .subtle) }
     static var appIcon: AppButtonStyle { AppButtonStyle(emphasis: .icon) }
 }

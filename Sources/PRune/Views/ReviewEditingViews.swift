@@ -200,7 +200,7 @@ struct CodeReviewSection: View {
     @State private var replyingCommentID: String?
     @State private var expandedResolvedCommentIDs: Set<String> = []
     @State private var diffLayout = DiffLayout.unified
-    @State private var collapsedFilePaths: Set<String> = []
+    @State private var fileExpansionOverrides: [String: Bool] = [:]
     @State private var committedViewportWidth: CGFloat = 460
     @State private var isCommitMenuPresented = false
     @State private var isCommitSelectorHovered = false
@@ -279,23 +279,23 @@ struct CodeReviewSection: View {
         .task(id: navigationTarget?.id) {
             guard let target = navigationTarget else { return }
             await store.loadDiff(for: pullRequest.id, commitOID: nil)
-            collapsedFilePaths.remove(target.path)
+            fileExpansionOverrides[target.path] = true
         }
         .onChange(of: pullRequest.id) {
             inlineTarget = nil
             replyingCommentID = nil
             expandedResolvedCommentIDs.removeAll()
-            collapsedFilePaths.removeAll()
+            fileExpansionOverrides.removeAll()
         }
         .onChange(of: selectedCommitOID) {
             inlineTarget = nil
             replyingCommentID = nil
             expandedResolvedCommentIDs.removeAll()
-            collapsedFilePaths.removeAll()
+            fileExpansionOverrides.removeAll()
         }
         .onChange(of: findRequestID) {
             if let findTargetFilePath {
-                collapsedFilePaths.remove(findTargetFilePath)
+                fileExpansionOverrides[findTargetFilePath] = true
             }
             if let findTargetID, findTargetID.hasPrefix("inline-comment|") {
                 expandedResolvedCommentIDs.insert(String(findTargetID.dropFirst(15)))
@@ -306,7 +306,7 @@ struct CodeReviewSection: View {
             inlineTarget = nil
             replyingCommentID = nil
             expandedResolvedCommentIDs.removeAll()
-            collapsedFilePaths.removeAll()
+            fileExpansionOverrides.removeAll()
 
             if let selectedCommitOID,
                !pullRequest.commits.contains(where: { $0.oid == selectedCommitOID }) {
@@ -345,16 +345,20 @@ struct CodeReviewSection: View {
                     help: "Collapse all files",
                     isDisabled: currentDiffFiles?.isEmpty != false || allFilesCollapsed
                 ) {
-                    collapsedFilePaths.formUnion(currentDiffFiles?.map(\.path) ?? [])
+                    for file in currentDiffFiles ?? [] {
+                        fileExpansionOverrides[file.path] = false
+                    }
                 }
 
                 DiffToolbarActionButton(
                     accessibilityLabel: "Expand all files",
                     systemImage: "rectangle.expand.vertical",
                     help: "Expand all files",
-                    isDisabled: collapsedFilePaths.isEmpty
+                    isDisabled: currentDiffFiles?.isEmpty != false || !currentDiffFilesContainCollapsed
                 ) {
-                    collapsedFilePaths.removeAll()
+                    for file in currentDiffFiles ?? [] {
+                        fileExpansionOverrides[file.path] = true
+                    }
                 }
 
                 DiffLayoutToggleButton(layout: $diffLayout)
@@ -372,7 +376,18 @@ struct CodeReviewSection: View {
 
     private var allFilesCollapsed: Bool {
         guard let files = currentDiffFiles, !files.isEmpty else { return false }
-        return files.allSatisfy { collapsedFilePaths.contains($0.path) }
+        return files.allSatisfy { isFileCollapsed($0.path) }
+    }
+
+    private var currentDiffFilesContainCollapsed: Bool {
+        currentDiffFiles?.contains(where: { isFileCollapsed($0.path) }) == true
+    }
+
+    private func isFileCollapsed(_ path: String) -> Bool {
+        if let isExpanded = fileExpansionOverrides[path] {
+            return !isExpanded
+        }
+        return store.fileViewedState(for: pullRequest.id, path: path) == .viewed
     }
 
     private var navigationAnchor: String? {
@@ -389,12 +404,23 @@ struct CodeReviewSection: View {
     }
 
     private var virtualContentRevision: String {
-        let collapsed = collapsedFilePaths.sorted().joined(separator: "|")
+        let collapsed = (currentDiffFiles ?? [])
+            .filter { isFileCollapsed($0.path) }
+            .map(\.path)
+            .joined(separator: "|")
+        let fileViews = (currentDiffFiles ?? []).map { file in
+            let state = store.fileViewedState(for: pullRequest.id, path: file.path)
+                .map { String($0.rawValue.prefix(1)) } ?? "?"
+            let updating = store.isUpdatingFileViewedState(
+                for: pullRequest.id, path: file.path
+            )
+            return "\(state)\(updating ? "1" : "0")"
+        }.joined()
         let comments = inlineReviewComments.map {
             "\($0.id):\($0.updatedAt.timeIntervalSinceReferenceDate):\($0.isResolved)"
         }.joined(separator: "|")
         let expandedResolved = expandedResolvedCommentIDs.sorted().joined(separator: "|")
-        return "\(diffSelectionID)|\(diffLayout.rawValue)|\(inlineTarget?.id ?? "")|\(replyingCommentID ?? "")|\(navigationTarget?.id.uuidString ?? "")|\(collapsed)|\(comments)|expanded:\(expandedResolved)|mutating:\(store.isPerformingMutation)|find:\(searchQuery)|target:\(findTargetID ?? "")"
+        return "\(diffSelectionID)|\(diffLayout.rawValue)|\(inlineTarget?.id ?? "")|\(replyingCommentID ?? "")|\(navigationTarget?.id.uuidString ?? "")|\(collapsed)|viewed:\(fileViews)|\(comments)|expanded:\(expandedResolved)|mutating:\(store.isPerformingMutation)|find:\(searchQuery)|target:\(findTargetID ?? "")"
     }
 
     private func virtualDiffRows(viewportWidth: CGFloat) -> [VirtualDiffRow] {
@@ -412,7 +438,7 @@ struct CodeReviewSection: View {
                     content: .fileHeader(file)
                 )
             )
-            guard !collapsedFilePaths.contains(file.path) else { continue }
+            guard !isFileCollapsed(file.path) else { continue }
 
             if file.hunks.isEmpty {
                 rows.append(
@@ -528,7 +554,7 @@ struct CodeReviewSection: View {
         case let .fileHeader(file):
             diffFileHeader(file)
                 .padding(.horizontal, 4)
-                .padding(.vertical, 2)
+                .padding(.bottom, 4)
                 .background(Color.panelBackground)
         case let .hunkHeader(hunk):
             diffHunkHeader(hunk)
@@ -806,7 +832,12 @@ struct CodeReviewSection: View {
     }
 
     private func diffFileHeader(_ file: PullRequestDiffFile) -> some View {
-        let isCollapsed = collapsedFilePaths.contains(file.path)
+        let isCollapsed = isFileCollapsed(file.path)
+        let viewedState = store.fileViewedState(for: pullRequest.id, path: file.path)
+        let isViewed = viewedState == .viewed
+        let isUpdatingViewed = store.isUpdatingFileViewedState(
+            for: pullRequest.id, path: file.path
+        )
 
         return HStack(spacing: 8) {
             Button {
@@ -844,6 +875,32 @@ struct CodeReviewSection: View {
 
             CopyPathButton(path: file.path)
                 .fixedSize()
+
+            Button {
+                Task {
+                    if await store.setFileViewed(!isViewed, for: file.path, on: pullRequest.id) {
+                        fileExpansionOverrides[file.path] = nil
+                    }
+                }
+            } label: {
+                HStack(spacing: 5) {
+                    if isUpdatingViewed {
+                        ProgressView().controlSize(.mini)
+                    } else {
+                        Image(systemName: isViewed ? "checkmark.square.fill" : "square")
+                    }
+                    Text("Viewed")
+                }
+            }
+            .buttonStyle(.appSecondaryCompact)
+            .disabled(viewedState == nil || isUpdatingViewed || store.isPerformingMutation)
+            .help(viewedState == nil
+                ? "Viewed status is unavailable for this file"
+                : isViewed ? "Mark file as unviewed" : "Mark file as viewed")
+            .accessibilityLabel(isViewed ? "Mark file as unviewed" : "Mark file as viewed")
+            .accessibilityValue(isViewed ? "On" : "Off")
+            .fixedSize()
+            .offset(y: -1)
         }
         .font(.system(size: 9.5, design: .monospaced))
         .padding(.horizontal, 10)
@@ -910,11 +967,7 @@ struct CodeReviewSection: View {
     }
 
     private func toggleFile(_ path: String) {
-        if collapsedFilePaths.contains(path) {
-            collapsedFilePaths.remove(path)
-        } else {
-            collapsedFilePaths.insert(path)
-        }
+        fileExpansionOverrides[path] = isFileCollapsed(path)
     }
 
     private func diffLine(

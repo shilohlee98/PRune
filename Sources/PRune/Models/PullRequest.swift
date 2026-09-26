@@ -246,6 +246,17 @@ struct PullRequestDiffFile: Identifiable, Hashable, Sendable {
     let deletions: Int
 }
 
+enum FileViewedState: String, Decodable, Sendable {
+    case dismissed = "DISMISSED"
+    case unviewed = "UNVIEWED"
+    case viewed = "VIEWED"
+}
+
+struct PullRequestViewedFiles: Sendable {
+    let pullRequestNodeID: String
+    var statesByPath: [String: FileViewedState]
+}
+
 struct CodeNavigationTarget: Identifiable, Hashable, Sendable {
     let id = UUID()
     let path: String

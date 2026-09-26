@@ -180,6 +180,110 @@ struct GitHubService: Sendable {
         return Self.parseUnifiedDiff(patch)
     }
 
+    func fetchViewedFiles(for pullRequest: PullRequest) async throws -> PullRequestViewedFiles {
+        let repository = pullRequest.repositoryFullName.split(
+            separator: "/", maxSplits: 1, omittingEmptySubsequences: true
+        )
+        guard repository.count == 2 else {
+            throw GitHubServiceError.invalidResponse("The GitHub repository name is invalid.")
+        }
+
+        let query = """
+        query ViewedFiles($owner: String!, $name: String!, $number: Int!, $cursor: String) {
+          repository(owner: $owner, name: $name) {
+            pullRequest(number: $number) {
+              id
+              files(first: 100, after: $cursor) {
+                nodes { path viewerViewedState }
+                pageInfo { hasNextPage endCursor }
+              }
+            }
+          }
+        }
+        """
+
+        var statesByPath: [String: FileViewedState] = [:]
+        var pullRequestNodeID: String?
+        var cursor: String?
+
+        repeat {
+            let data = try await runJSON(
+                graphqlArguments(for: pullRequest),
+                payload: GHViewedFilesRequest(
+                    query: query,
+                    variables: GHViewedFilesVariables(
+                        owner: String(repository[0]),
+                        name: String(repository[1]),
+                        number: pullRequest.number,
+                        cursor: cursor
+                    )
+                )
+            )
+            let response = try JSONDecoder().decode(GHViewedFilesEnvelope.self, from: data)
+            if let message = response.errors?.first?.message {
+                throw GitHubServiceError.invalidResponse(message)
+            }
+            guard let pullRequest = response.data?.repository?.pullRequest,
+                  let files = pullRequest.files else {
+                throw GitHubServiceError.invalidResponse("GitHub did not return viewed file states.")
+            }
+
+            pullRequestNodeID = pullRequest.id
+            for file in files.nodes {
+                statesByPath[file.path] = file.viewerViewedState
+            }
+            if files.pageInfo.hasNextPage {
+                guard let nextCursor = files.pageInfo.endCursor else {
+                    throw GitHubServiceError.invalidResponse("GitHub did not return the next file page.")
+                }
+                cursor = nextCursor
+            } else {
+                cursor = nil
+            }
+        } while cursor != nil
+
+        guard let pullRequestNodeID else {
+            throw GitHubServiceError.invalidResponse("GitHub did not return the pull request ID.")
+        }
+        return PullRequestViewedFiles(
+            pullRequestNodeID: pullRequestNodeID,
+            statesByPath: statesByPath
+        )
+    }
+
+    func setFileViewed(
+        _ viewed: Bool,
+        path: String,
+        pullRequestNodeID: String,
+        on pullRequest: PullRequest
+    ) async throws {
+        let mutation = viewed ? "markFileAsViewed" : "unmarkFileAsViewed"
+        let query = """
+        mutation SetFileViewed($pullRequestId: ID!, $path: String!) {
+          updated: \(mutation)(input: {pullRequestId: $pullRequestId, path: $path}) {
+            pullRequest { id }
+          }
+        }
+        """
+        let data = try await runJSON(
+            graphqlArguments(for: pullRequest),
+            payload: GHViewedFileMutationRequest(
+                query: query,
+                variables: GHViewedFileMutationVariables(
+                    pullRequestId: pullRequestNodeID,
+                    path: path
+                )
+            )
+        )
+        let response = try JSONDecoder().decode(GHViewedFileMutationEnvelope.self, from: data)
+        if let message = response.errors?.first?.message {
+            throw GitHubServiceError.invalidResponse(message)
+        }
+        guard response.data?.updated?.pullRequest?.id == pullRequestNodeID else {
+            throw GitHubServiceError.invalidResponse("GitHub did not confirm the viewed file change.")
+        }
+    }
+
     func updateDescription(of pullRequest: PullRequest, body: String) async throws {
         _ = try await run(
             [
@@ -674,6 +778,14 @@ struct GitHubService: Sendable {
         return enriched
     }
 
+    private func graphqlArguments(for pullRequest: PullRequest) -> [String] {
+        [
+            "api", "graphql",
+            "--hostname", pullRequest.webURL.host ?? "github.com",
+            "--input", "-",
+        ]
+    }
+
     private func run(_ arguments: [String], stdin: String? = nil) async throws -> Data {
         try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
@@ -907,6 +1019,73 @@ private struct GHGraphQLRequest: Encodable, Sendable {
 
 private struct GHGraphQLError: Decodable, Sendable {
     let message: String
+}
+
+private struct GHViewedFilesRequest: Encodable, Sendable {
+    let query: String
+    let variables: GHViewedFilesVariables
+}
+
+private struct GHViewedFilesVariables: Encodable, Sendable {
+    let owner: String
+    let name: String
+    let number: Int
+    let cursor: String?
+}
+
+private struct GHViewedFilesEnvelope: Decodable, Sendable {
+    let data: GHViewedFilesData?
+    let errors: [GHGraphQLError]?
+}
+
+private struct GHViewedFilesData: Decodable, Sendable {
+    let repository: GHViewedFilesRepository?
+}
+
+private struct GHViewedFilesRepository: Decodable, Sendable {
+    let pullRequest: GHViewedFilesPullRequest?
+}
+
+private struct GHViewedFilesPullRequest: Decodable, Sendable {
+    let id: String
+    let files: GHViewedFilesConnection?
+}
+
+private struct GHViewedFilesConnection: Decodable, Sendable {
+    let nodes: [GHViewedFileNode]
+    let pageInfo: GHReviewThreadPageInfo
+}
+
+private struct GHViewedFileNode: Decodable, Sendable {
+    let path: String
+    let viewerViewedState: FileViewedState
+}
+
+private struct GHViewedFileMutationRequest: Encodable, Sendable {
+    let query: String
+    let variables: GHViewedFileMutationVariables
+}
+
+private struct GHViewedFileMutationVariables: Encodable, Sendable {
+    let pullRequestId: String
+    let path: String
+}
+
+private struct GHViewedFileMutationEnvelope: Decodable, Sendable {
+    let data: GHViewedFileMutationData?
+    let errors: [GHGraphQLError]?
+}
+
+private struct GHViewedFileMutationData: Decodable, Sendable {
+    let updated: GHViewedFileMutationPayload?
+}
+
+private struct GHViewedFileMutationPayload: Decodable, Sendable {
+    let pullRequest: GHViewedFilesMutationPullRequest?
+}
+
+private struct GHViewedFilesMutationPullRequest: Decodable, Sendable {
+    let id: String
 }
 
 private struct GHReviewThreadMetadata: Sendable {

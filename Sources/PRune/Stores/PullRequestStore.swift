@@ -32,6 +32,8 @@ final class PullRequestStore {
     var operationFeedback: OperationFeedback?
 
     private var diffs: [String: [PullRequestDiffFile]] = [:]
+    private var viewedFileSnapshots: [String: PullRequestViewedFiles] = [:]
+    private var updatingViewedFileKeys: [String: UUID] = [:]
     private var loadingDiffKeys: Set<String> = []
     private var loadingDetailIDs: Set<PullRequest.ID> = []
     private var draftComments: [PullRequest.ID: [DraftReviewComment]] = [:]
@@ -166,6 +168,8 @@ final class PullRequestStore {
             }
             diffGeneration += 1
             diffs.removeAll()
+            viewedFileSnapshots.removeAll()
+            updatingViewedFileKeys.removeAll()
             loadingDiffKeys.removeAll()
             pullRequests = livePullRequests
             pullRequestLimit = initialLimit
@@ -366,6 +370,14 @@ final class PullRequestStore {
         loadingDiffKeys.contains(diffKey(for: id, commitOID: commitOID))
     }
 
+    func fileViewedState(for id: PullRequest.ID, path: String) -> FileViewedState? {
+        viewedFileSnapshots[diffKey(for: id, commitOID: nil)]?.statesByPath[path]
+    }
+
+    func isUpdatingFileViewedState(for id: PullRequest.ID, path: String) -> Bool {
+        updatingViewedFileKeys["\(id)|\(path)"] != nil
+    }
+
     func loadDiff(for id: PullRequest.ID, commitOID: String? = nil) async {
         await loadDetails(for: id)
         guard
@@ -374,10 +386,17 @@ final class PullRequestStore {
         else { return }
 
         let key = diffKey(for: id, commitOID: commitOID)
+        let viewedKey = diffKey(for: id, commitOID: nil)
         let generation = diffGeneration
-        guard diffs[key] == nil, !loadingDiffKeys.contains(key) else { return }
+        guard diffs[key] == nil, !loadingDiffKeys.contains(key) else {
+            await loadViewedFiles(for: pullRequest, key: viewedKey, generation: generation)
+            return
+        }
 
         loadingDiffKeys.insert(key)
+        async let viewedLoad: Void = loadViewedFiles(
+            for: pullRequest, key: viewedKey, generation: generation
+        )
         defer {
             if generation == diffGeneration {
                 loadingDiffKeys.remove(key)
@@ -385,6 +404,7 @@ final class PullRequestStore {
         }
         do {
             let files = try await service.fetchDiff(for: pullRequest, commitOID: commitOID)
+            await viewedLoad
             guard
                 generation == diffGeneration,
                 diffKey(for: id, commitOID: commitOID) == key
@@ -396,6 +416,68 @@ final class PullRequestStore {
                 message: "Could not load the diff — \(error.localizedDescription)",
                 succeeded: false
             )
+        }
+    }
+
+    private func loadViewedFiles(
+        for pullRequest: PullRequest,
+        key: String,
+        generation: Int
+    ) async {
+        guard !isShowingPreviewData, viewedFileSnapshots[key] == nil else { return }
+        do {
+            let snapshot = try await service.fetchViewedFiles(for: pullRequest)
+            guard generation == diffGeneration,
+                  diffKey(for: pullRequest.id, commitOID: nil) == key else { return }
+            viewedFileSnapshots[key] = snapshot
+        } catch {
+            guard generation == diffGeneration else { return }
+            operationFeedback = OperationFeedback(
+                message: "Could not load viewed files — \(error.localizedDescription)",
+                succeeded: false
+            )
+        }
+    }
+
+    func setFileViewed(_ viewed: Bool, for path: String, on id: PullRequest.ID) async -> Bool {
+        let viewedKey = diffKey(for: id, commitOID: nil)
+        let mutationKey = "\(id)|\(path)"
+        guard !isShowingPreviewData,
+              !isPerformingMutation,
+              updatingViewedFileKeys[mutationKey] == nil,
+              let pullRequest = pullRequests.first(where: { $0.id == id }),
+              let snapshot = viewedFileSnapshots[viewedKey],
+              snapshot.statesByPath[path] != nil else { return false }
+
+        let generation = diffGeneration
+        let mutationID = UUID()
+        updatingViewedFileKeys[mutationKey] = mutationID
+        defer {
+            if updatingViewedFileKeys[mutationKey] == mutationID {
+                updatingViewedFileKeys[mutationKey] = nil
+            }
+        }
+
+        do {
+            try await service.setFileViewed(
+                viewed,
+                path: path,
+                pullRequestNodeID: snapshot.pullRequestNodeID,
+                on: pullRequest
+            )
+            guard generation == diffGeneration,
+                  viewedFileSnapshots[viewedKey]?.pullRequestNodeID == snapshot.pullRequestNodeID
+            else { return false }
+            viewedFileSnapshots[viewedKey]?.statesByPath[path] = viewed ? .viewed : .unviewed
+            return true
+        } catch {
+            if generation == diffGeneration {
+                operationFeedback = OperationFeedback(
+                    message: "Could not update viewed file — \(error.localizedDescription)",
+                    succeeded: false
+                )
+            }
+            return false
         }
     }
 
@@ -740,6 +822,8 @@ final class PullRequestStore {
         githubAccounts.removeAll()
         expandedRepositories.removeAll()
         diffs.removeAll()
+        viewedFileSnapshots.removeAll()
+        updatingViewedFileKeys.removeAll()
         loadingDiffKeys.removeAll()
         loadingDetailIDs.removeAll()
         draftComments.removeAll()
