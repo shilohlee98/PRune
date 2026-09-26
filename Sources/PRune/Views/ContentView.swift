@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct ContentView: View {
@@ -10,7 +11,6 @@ struct ContentView: View {
     @State private var isMergePopoverPresented = false
     @State private var isAccountPopoverPresented = false
     @State private var sidebarWidth: CGFloat = 420
-    @State private var sidebarResizeStartWidth: CGFloat?
 
     var body: some View {
         Group {
@@ -75,24 +75,12 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity)
                 }
                 .overlay(alignment: .leading) {
-                    Color.clear
+                    SidebarResizeHandle(
+                        sidebarWidth: width,
+                        maximumWidth: max(320, min(520, geometry.size.width - 460))
+                    ) { sidebarWidth = $0 }
                         .frame(width: 8)
-                        .contentShape(Rectangle())
                         .offset(x: width - 4)
-                        .gesture(
-                            DragGesture(minimumDistance: 2)
-                                .onChanged { value in
-                                    if sidebarResizeStartWidth == nil {
-                                        sidebarResizeStartWidth = width
-                                    }
-                                    sidebarWidth = min(
-                                        max((sidebarResizeStartWidth ?? width) + value.translation.width, 320),
-                                        max(320, min(520, geometry.size.width - 460))
-                                    )
-                                }
-                                .onEnded { _ in sidebarResizeStartWidth = nil }
-                        )
-                        .help("Drag to resize sidebar")
                 }
             }
 
@@ -584,6 +572,123 @@ private struct MergeActionRow: View {
         .disabled(!isEnabled)
         .onHover { isHovered = isEnabled && $0 }
         .animation(.easeOut(duration: 0.12), value: isHovered)
+    }
+}
+
+private struct SidebarResizeHandle: NSViewRepresentable {
+    let sidebarWidth: CGFloat
+    let maximumWidth: CGFloat
+    let onResize: (CGFloat) -> Void
+
+    func makeNSView(context: Context) -> HandleView {
+        let view = HandleView(frame: .zero)
+        view.toolTip = "Drag to resize sidebar"
+        view.setAccessibilityLabel("Resize sidebar")
+        return view
+    }
+
+    func updateNSView(_ view: HandleView, context: Context) {
+        view.sidebarWidth = sidebarWidth
+        view.maximumWidth = maximumWidth
+        view.onResize = onResize
+    }
+
+    static func dismantleNSView(_ view: HandleView, coordinator: ()) {
+        view.endInteraction()
+    }
+
+    final class HandleView: NSView {
+        var sidebarWidth: CGFloat = 420
+        var maximumWidth: CGFloat = 520
+        var onResize: ((CGFloat) -> Void)?
+        private var cursorTrackingArea: NSTrackingArea?
+        private var isHovered = false
+        private var dragStart: (screenX: CGFloat, width: CGFloat)?
+
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+        override func draw(_ dirtyRect: NSRect) {
+            guard isHovered || dragStart != nil else { return }
+            NSColor.white.withAlphaComponent(0.22).setFill()
+            NSRect(x: (bounds.width - 1) / 2, y: bounds.minY, width: 1, height: bounds.height).fill()
+        }
+
+        override func resetCursorRects() {
+            super.resetCursorRects()
+            addCursorRect(bounds, cursor: .resizeLeftRight)
+        }
+
+        override func updateTrackingAreas() {
+            if let cursorTrackingArea { removeTrackingArea(cursorTrackingArea) }
+            let area = NSTrackingArea(
+                rect: .zero,
+                options: [.mouseEnteredAndExited, .mouseMoved, .cursorUpdate, .activeInKeyWindow, .inVisibleRect],
+                owner: self,
+                userInfo: nil
+            )
+            addTrackingArea(area)
+            cursorTrackingArea = area
+            super.updateTrackingAreas()
+        }
+
+        override func cursorUpdate(with event: NSEvent) {
+            NSCursor.resizeLeftRight.set()
+        }
+
+        override func mouseEntered(with event: NSEvent) {
+            isHovered = true
+            needsDisplay = true
+            NSCursor.resizeLeftRight.set()
+        }
+
+        override func mouseMoved(with event: NSEvent) {
+            NSCursor.resizeLeftRight.set()
+        }
+
+        override func mouseExited(with event: NSEvent) {
+            isHovered = false
+            needsDisplay = true
+            if dragStart == nil { NSCursor.arrow.set() }
+        }
+
+        override func mouseDown(with event: NSEvent) {
+            dragStart = (screenX: screenX(for: event), width: sidebarWidth)
+            needsDisplay = true
+            NSCursor.resizeLeftRight.set()
+        }
+
+        override func mouseDragged(with event: NSEvent) {
+            guard let dragStart else { return }
+            let width = dragStart.width + screenX(for: event) - dragStart.screenX
+            onResize?(min(max(width, 320), maximumWidth))
+            NSCursor.resizeLeftRight.set()
+        }
+
+        override func mouseUp(with event: NSEvent) {
+            dragStart = nil
+            isHovered = bounds.contains(convert(event.locationInWindow, from: nil))
+            needsDisplay = true
+            if isHovered {
+                NSCursor.resizeLeftRight.set()
+            } else {
+                NSCursor.arrow.set()
+            }
+        }
+
+        func endInteraction() {
+            if isHovered || dragStart != nil { NSCursor.arrow.set() }
+            isHovered = false
+            dragStart = nil
+        }
+
+        private func screenX(for event: NSEvent) -> CGFloat {
+            event.window?.convertPoint(toScreen: event.locationInWindow).x ?? NSEvent.mouseLocation.x
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            window?.invalidateCursorRects(for: self)
+        }
     }
 }
 
