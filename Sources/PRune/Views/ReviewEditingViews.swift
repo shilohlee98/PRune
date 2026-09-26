@@ -204,6 +204,7 @@ struct CodeReviewSection: View {
     @State private var committedViewportWidth: CGFloat = 460
     @State private var isCommitMenuPresented = false
     @State private var isCommitSelectorHovered = false
+    @State private var fileFilter = DiffFileFilter()
 
     private var selectedCommit: PullRequestCommit? {
         pullRequest.commits.first { $0.oid == selectedCommitOID }
@@ -215,6 +216,15 @@ struct CodeReviewSection: View {
 
     private var currentDiffFiles: [PullRequestDiffFile]? {
         store.diffFiles(for: pullRequest.id, commitOID: selectedCommitOID)
+    }
+
+    private var filteredDiffFiles: [PullRequestDiffFile]? {
+        currentDiffFiles?.filter {
+            fileFilter.matches(
+                path: $0.path,
+                isViewed: store.fileViewedState(for: pullRequest.id, path: $0.path) == .viewed
+            )
+        }
     }
 
     private var inlineReviewComments: [PullRequestComment] {
@@ -255,6 +265,15 @@ struct CodeReviewSection: View {
                     .font(.system(size: 12))
                     .foregroundStyle(Color.mutedText)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if filteredDiffFiles?.isEmpty == true {
+                VStack(spacing: 10) {
+                    Text("No files match these filters.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Color.mutedText)
+                    Button("Reset filters") { fileFilter = DiffFileFilter() }
+                        .buttonStyle(.appSecondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 VirtualizedDiffTable(
                     rows: virtualDiffRows(viewportWidth: committedViewportWidth),
@@ -279,6 +298,7 @@ struct CodeReviewSection: View {
         .task(id: navigationTarget?.id) {
             guard let target = navigationTarget else { return }
             await store.loadDiff(for: pullRequest.id, commitOID: nil)
+            revealFilteredFile(target.path)
             fileExpansionOverrides[target.path] = true
         }
         .onChange(of: pullRequest.id) {
@@ -286,6 +306,7 @@ struct CodeReviewSection: View {
             replyingCommentID = nil
             expandedResolvedCommentIDs.removeAll()
             fileExpansionOverrides.removeAll()
+            fileFilter = DiffFileFilter()
         }
         .onChange(of: selectedCommitOID) {
             inlineTarget = nil
@@ -295,6 +316,7 @@ struct CodeReviewSection: View {
         }
         .onChange(of: findRequestID) {
             if let findTargetFilePath {
+                revealFilteredFile(findTargetFilePath)
                 fileExpansionOverrides[findTargetFilePath] = true
             }
             if let findTargetID, findTargetID.hasPrefix("inline-comment|") {
@@ -339,13 +361,24 @@ struct CodeReviewSection: View {
 
                 Spacer(minLength: 4)
 
+                DiffFileFilterDropdown(
+                    filter: $fileFilter,
+                    files: currentDiffFiles ?? [],
+                    viewedFileCount: (currentDiffFiles ?? []).filter {
+                        store.fileViewedState(for: pullRequest.id, path: $0.path) == .viewed
+                    }.count,
+                    visibleFiles: filteredDiffFiles ?? []
+                )
+                .disabled(currentDiffFiles?.isEmpty != false)
+                .id(pullRequest.id)
+
                 DiffToolbarActionButton(
                     accessibilityLabel: "Collapse all files",
                     systemImage: "rectangle.compress.vertical",
                     help: "Collapse all files",
-                    isDisabled: currentDiffFiles?.isEmpty != false || allFilesCollapsed
+                    isDisabled: filteredDiffFiles?.isEmpty != false || allFilesCollapsed
                 ) {
-                    for file in currentDiffFiles ?? [] {
+                    for file in filteredDiffFiles ?? [] {
                         fileExpansionOverrides[file.path] = false
                     }
                 }
@@ -354,9 +387,9 @@ struct CodeReviewSection: View {
                     accessibilityLabel: "Expand all files",
                     systemImage: "rectangle.expand.vertical",
                     help: "Expand all files",
-                    isDisabled: currentDiffFiles?.isEmpty != false || !currentDiffFilesContainCollapsed
+                    isDisabled: filteredDiffFiles?.isEmpty != false || !currentDiffFilesContainCollapsed
                 ) {
-                    for file in currentDiffFiles ?? [] {
+                    for file in filteredDiffFiles ?? [] {
                         fileExpansionOverrides[file.path] = true
                     }
                 }
@@ -375,12 +408,21 @@ struct CodeReviewSection: View {
     }
 
     private var allFilesCollapsed: Bool {
-        guard let files = currentDiffFiles, !files.isEmpty else { return false }
+        guard let files = filteredDiffFiles, !files.isEmpty else { return false }
         return files.allSatisfy { isFileCollapsed($0.path) }
     }
 
     private var currentDiffFilesContainCollapsed: Bool {
-        currentDiffFiles?.contains(where: { isFileCollapsed($0.path) }) == true
+        filteredDiffFiles?.contains(where: { isFileCollapsed($0.path) }) == true
+    }
+
+    private func revealFilteredFile(_ path: String) {
+        if !fileFilter.matches(
+            path: path,
+            isViewed: store.fileViewedState(for: pullRequest.id, path: path) == .viewed
+        ) {
+            fileFilter = DiffFileFilter()
+        }
     }
 
     private func isFileCollapsed(_ path: String) -> Bool {
@@ -424,7 +466,7 @@ struct CodeReviewSection: View {
     }
 
     private func virtualDiffRows(viewportWidth: CGFloat) -> [VirtualDiffRow] {
-        guard let files = currentDiffFiles else { return [] }
+        guard let files = filteredDiffFiles else { return [] }
         var rows: [VirtualDiffRow] = []
 
         for file in files {

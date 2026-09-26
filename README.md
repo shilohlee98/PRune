@@ -14,6 +14,7 @@
 - Switches between GitHub accounts authenticated through the local `gh` CLI
 - Shows pull request summaries, reviewers, checks, activity, commits, changed files, and merge blockers
 - Opens all changes or a single commit in unified or split, syntax-highlighted diffs
+- Filters diff files by extension, viewed status, and case-insensitive path text or globs such as `*.ts` and `src/*`; custom Include/Exclude options can be added, toggled, and deleted. Include matches any selected pattern; Exclude removes matching files, including when no Include options are selected
 - Collapses individual files or the entire diff, copies file paths, opens the pull request on GitHub, and refreshes on demand
 - Edits authored pull request descriptions, changes their status between Draft and Ready for review, and closes or reopens them
 - Posts, replies to, quotes, edits, deletes, and locally hides comments

@@ -4,6 +4,7 @@ import SwiftUI
 struct AppDropdown<Label: View, MenuContent: View>: View {
     @Binding var isPresented: Bool
     let width: CGFloat
+    var allowsTextInput = false
     @ViewBuilder let label: () -> Label
     @ViewBuilder let menuContent: () -> MenuContent
 
@@ -17,7 +18,8 @@ struct AppDropdown<Label: View, MenuContent: View>: View {
         .background {
             DropdownPanelPresenter(
                 isPresented: $isPresented,
-                width: width
+                width: width,
+                allowsTextInput: allowsTextInput
             ) {
                 menuContent()
             }
@@ -78,6 +80,7 @@ struct AppDropdownRow<Content: View>: View {
 private struct DropdownPanelPresenter<Content: View>: NSViewRepresentable {
     @Binding var isPresented: Bool
     let width: CGFloat
+    let allowsTextInput: Bool
     @ViewBuilder let content: () -> Content
 
     func makeCoordinator() -> Coordinator {
@@ -112,7 +115,8 @@ private struct DropdownPanelPresenter<Content: View>: NSViewRepresentable {
         var parent: DropdownPanelPresenter
         weak var anchorView: NSView?
 
-        private var panel: NSPanel?
+        private var panel: DropdownPanel?
+        private var hostingView: NSHostingView<AnyView>?
         private var localEventMonitor: Any?
         private var anchorScreenFrame = NSRect.zero
 
@@ -153,31 +157,51 @@ private struct DropdownPanelPresenter<Content: View>: NSViewRepresentable {
                     .stroke(Color.white.opacity(0.16), lineWidth: 0.8)
             }
 
-            let hostingView = NSHostingView(rootView: rootView)
-            hostingView.frame.size = hostingView.fittingSize
+            let hostingView: NSHostingView<AnyView>
+            if let existingHostingView = self.hostingView {
+                existingHostingView.rootView = AnyView(rootView)
+                hostingView = existingHostingView
+            } else {
+                hostingView = NSHostingView(rootView: AnyView(rootView))
+                self.hostingView = hostingView
+            }
+            hostingView.layoutSubtreeIfNeeded()
+            let contentSize = hostingView.fittingSize
+            hostingView.frame.size = contentSize
 
             let panel = panel ?? makePanel()
+            let isOpening = !panel.isVisible
+            panel.allowsTextInput = parent.allowsTextInput
             panel.appearance = window.appearance ?? NSAppearance(named: .darkAqua)
             panel.contentView = hostingView
-            panel.setContentSize(hostingView.fittingSize)
+            panel.setContentSize(contentSize)
 
             let anchorFrameInWindow = anchorView.convert(anchorView.bounds, to: nil)
             anchorScreenFrame = window.convertToScreen(anchorFrameInWindow)
             position(panel, below: anchorScreenFrame, inside: menuBounds)
             panel.orderFront(nil)
+            if isOpening && parent.allowsTextInput {
+                panel.makeKey()
+            }
             installEventMonitorIfNeeded()
         }
 
         func dismiss() {
+            let wasKey = panel?.isKeyWindow == true
             panel?.orderOut(nil)
+            panel?.contentView = nil
+            hostingView = nil
+            if wasKey {
+                anchorView?.window?.makeKey()
+            }
             if let localEventMonitor {
                 NSEvent.removeMonitor(localEventMonitor)
                 self.localEventMonitor = nil
             }
         }
 
-        private func makePanel() -> NSPanel {
-            let panel = NSPanel(
+        private func makePanel() -> DropdownPanel {
+            let panel = DropdownPanel(
                 contentRect: .zero,
                 styleMask: [.borderless, .nonactivatingPanel],
                 backing: .buffered,
@@ -250,4 +274,11 @@ private struct DropdownPanelPresenter<Content: View>: NSViewRepresentable {
             closeFromInteraction()
         }
     }
+}
+
+private final class DropdownPanel: NSPanel {
+    var allowsTextInput = false
+
+    override var canBecomeKey: Bool { allowsTextInput || super.canBecomeKey }
+    override var canBecomeMain: Bool { false }
 }
