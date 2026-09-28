@@ -64,28 +64,7 @@ Every action that writes to GitHub shows a native confirmation dialog first. Aut
 ## Build and run
 
 ```sh
-swift build &&
-  ./scripts/package-app.sh &&
-  open "build/PRune.app"
-```
-
-Chaining the commands prevents `package-app.sh` from packaging an older binary when the build fails.
-
-### Missing `SwiftUIMacros` plugin
-
-If `swift build` reports that `SwiftUIMacros.StateMacro` could not be found, the selected SDK and Swift toolchain are not a complete matching installation. Prefer selecting a full Xcode installation:
-
-```sh
-sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
-sudo xcodebuild -runFirstLaunch
-swift build
-```
-
-As a temporary workaround, if the macOS 26.5 SDK is installed, build against it explicitly:
-
-```sh
-swift build --sdk /Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk &&
-  ./scripts/package-app.sh &&
+./scripts/build-app.sh &&
   open "build/PRune.app"
 ```
 
